@@ -46,6 +46,8 @@ void Usage(char *exec)
     printf("\t-outlier <fl1> <fl2>\t| Outlier detection as in (Van Leemput TMI 2003). <fl1> is the Mahalanobis threshold [recommended between 3 and 7] \n");
     printf("\t\t\t\t| <fl2> is a convergence ratio below which the outlier detection is going to be done [recommended 0.01].\n");
     printf("\t-out_outlier <filename>\t| Output outlierness image \n");
+    printf("\t-out_means <filename>\t| Output mean file \n");
+    printf("\t-out_stds <filename>\t| Output stds file \n");
     printf("\t-rf <rel> <gstd>\t| Relax Priors [relaxation factor: 0<rf<1 (recommended=0.5), gaussian regularization: gstd>0 (recommended=2.0)] /only 3D/\n");
     printf("\t-MAP <M V M V ...> \t| MAP formulation: M and V are the parameters (mean & variance) of the semiconjugate prior over the class mean\n");
 #ifdef _GIT_HASH
@@ -271,6 +273,16 @@ int main(int argc, char **argv)
             {
                 segment_param->filename_out_outlier = argv[++i];
                 segment_param->flag_out_outlier=1;
+            }
+            else if((strcmp(argv[i], "-out_means") == 0 || strcmp(argv[i], "--out_means") == 0) && (i+1)<(long)argc)
+            {
+                segment_param->filename_out_means = argv[++i];
+                segment_param->flag_out_means=1;
+            }
+            else if((strcmp(argv[i], "-out_stds") == 0 || strcmp(argv[i], "--out_stds") == 0) && (i+1)<(long)argc)
+            {
+                segment_param->filename_out_stds = argv[++i];
+                segment_param->flag_out_stds=1;
             }
             // Additional options "-MAP_MV1/2/3/4/5" added for operation
             // with command line interface XML interface. Format: -MAP_MV1 <mean>,<var> etc.
@@ -642,6 +654,44 @@ int main(int argc, char **argv)
             OutliernessImage=SEG.GetOutlierness(segment_param->filename_out_outlier);
             nifti_image_write(OutliernessImage);
             nifti_image_free(OutliernessImage);
+        }
+
+        if(segment_param->flag_out_means)
+        {
+            if(segment_param->verbose_level>0)
+            {
+                cout << "Saving means file to: " << segment_param->filename_out_means <<endl;
+            }
+            ofstream mean_file;
+            mean_file.open(segment_param->filename_out_means);
+            float* means = SEG.GetMeans();
+
+            for(int j=0; j<(segment_param->numb_classes); j++){
+                for(int i=0; i<(InputImage->dim[5]); i++){
+                    mean_file << means[j+i*segment_param->numb_classes] << ' ';
+                }
+                mean_file << '\n';
+            }
+            mean_file.close();
+        }
+
+        if(segment_param->flag_out_stds)
+        {
+            if(segment_param->verbose_level>0)
+            {
+                cout << "Saving stds file to: " << segment_param->filename_out_stds <<endl;
+            }
+            ofstream std_file;
+            std_file.open(segment_param->filename_out_stds);
+            float* STD = SEG.GetSTD();
+
+            for(int i=0; i<(segment_param->numb_classes); i++){
+                for(int j=0; j<(InputImage->dim[5]*InputImage->dim[5]); j++){
+                    std_file << STD[j+i*InputImage->dim[5]*InputImage->dim[5]] << ' ';
+                }
+                std_file << '\n';
+            }
+            std_file.close();
         }
 
         nifti_image * BiasFieldCorrected=NULL;

@@ -1049,7 +1049,7 @@ void seg_EM::CreateLong2ShortMatrix()
 /* \/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/ */
 /// @brief Gets the Mean vector. This is normally used by the caller after the algorithm converges to obtain the model parameters.
 ///
-/// This is normally used by the caller after the algorithm converges to obtain the model parameters. Note that the means have to be pub back into a non-log non-normalised form.
+/// This is normally used by the caller after the algorithm converges to obtain the model parameters. Note that the means are already put back into a non-log non-normalised form.
 ///
 segPrecisionTYPE * seg_EM::GetMeans()
 {
@@ -1067,6 +1067,30 @@ segPrecisionTYPE * seg_EM::GetMeans()
 
     return OutM;
 }
+
+
+
+/* \/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/ */
+/// @brief Gets the Mean vector. This is normally used by the caller after the algorithm converges to obtain the model parameters.
+///
+/// This is normally used by the caller after the algorithm converges to obtain the model parameters. Note that the means have to be pub back into a non-log non-normalised form.
+///
+segPrecisionTYPE * seg_EM::GetMeansLogTransformed()
+{
+    segPrecisionTYPE * OutM= new segPrecisionTYPE [this->nu*this->numberOfClasses];
+    int index=0;
+    for(int j=0; j<(this->numberOfClasses); j++)
+    {
+        for(int i=0; i<(this->nu); i++)
+        {
+            //cout << "M["<<j<<"]="<<this->M[j+i*this->numb_classes]<<endl;
+            OutM[j+i*this->numberOfClasses]=(this->M[index++]);
+        }
+    }
+
+    return OutM;
+}
+
 /* \/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/ */
 /// @brief Gets the Covariance matrix.
 ///
@@ -1079,13 +1103,36 @@ segPrecisionTYPE * seg_EM::GetSTD()
     {
         for(int j=0; j<(this->numberOfClasses*this->numberOfClasses); j++)
         {
-            OutV[j+i*this->numberOfClasses*this->numberOfClasses] = this->V[j+i*this->numberOfClasses*this->numberOfClasses];
+            float resize=exp((sqrt(this->V[j+i*this->numberOfClasses*this->numberOfClasses]))*0.693147181)-1;
+            int x = i / this->nu;//row
+            int y = i - (this->nu*x);//col
+            float rescale_1 = this->rescale_max[x]-this->rescale_min[x];
+            float rescale_2 = this->rescale_max[y]-this->rescale_min[y];
+            OutV[j+i*this->numberOfClasses*this->numberOfClasses]=(resize*(sqrt(rescale_1 * rescale_2)));
         }
     }
 
     return OutV;
 }
 
+/* \/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/ */
+/// @brief Gets the Covariance matrix.
+///
+/// This is normally used by the caller after the algorithm converges to obtain the model parameters. Note that the variances are in the log-transformed space and are not rescalled.
+///
+segPrecisionTYPE * seg_EM::GetSTDLogTransformed()
+{
+    segPrecisionTYPE * OutV= new segPrecisionTYPE [this->nu*this->numberOfClasses*this->numberOfClasses];
+    for(int i=0; i<(this->nu); i++)
+    {
+        for(int j=0; j<(this->numberOfClasses*this->numberOfClasses); j++)
+        {
+            OutV[j+i*this->numberOfClasses*this->numberOfClasses] = this->V[j+i*this->numberOfClasses*this->numberOfClasses];
+        }
+    }
+
+    return OutV;
+}
 
 /* \/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/ */
 /// @brief Gets the final segmentation results.

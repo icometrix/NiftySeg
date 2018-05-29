@@ -206,7 +206,9 @@ public:
 
     // Getters of the results
     float*   GetMeans();
+    float*   GetMeansLogTransformed();
     float*   GetSTD();
+    float*   GetSTDLogTransformed();
     nifti_image* GetResult();
     nifti_image* GetBiasCorrected(char * filename);
     nifti_image* GetOutlierness(char * filename);

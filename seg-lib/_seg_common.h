@@ -201,6 +201,10 @@ typedef struct seg_EM_Params
     bool flag_Outlierness;
     char * filename_out_outlier;
     bool flag_out_outlier;
+    char * filename_out_means;
+    bool flag_out_means;
+    char * filename_out_stds;
+    bool flag_out_stds;
     float OutliernessThreshold;
     float OutliernessRatio;
     float * MAP_M;
@@ -236,7 +240,11 @@ typedef struct seg_EM_Params
         flag_priors4D = 0;
         flag_Outlierness = 0;
         filename_out_outlier = 0;
+        filename_out_means = 0;
+        filename_out_stds = 0;
         flag_out_outlier = 0;
+        flag_out_means = 0;
+        flag_out_stds = 0;
         OutliernessThreshold = 0;
         OutliernessRatio = 0;
         MAP_M = 0;
@@ -279,6 +287,10 @@ typedef struct seg_EM_Params
              << "PARAMS: OutliernessRatio: " << OutliernessRatio << endl
              << "PARAMS: flag_out_outlier: " << flag_out_outlier << endl
              << "PARAMS: filename_out_outlier: " << (char *) ( ( filename_out_outlier ) ? filename_out_outlier : "0" ) << endl
+             << "PARAMS: flag_out_means: " << flag_out_means << endl
+             << "PARAMS: filename_out_means: " << (char *) ( ( filename_out_means ) ? filename_out_means : "0" ) << endl
+             << "PARAMS: flag_out_stds: " << flag_out_stds << endl
+             << "PARAMS: filename_out_stds: " << (char *) ( ( filename_out_stds ) ? filename_out_stds : "0" ) << endl
              << "PARAMS: flag_MAP: " << flag_MAP << endl;
 
         if ( MAP_M )
