@@ -23,7 +23,7 @@ seg_LabFusion::seg_LabFusion(int _numb_classif, int numbclasses, int _Numb_Neigh
     this->dx=0;
     this->dy=0;
     this->dz=0;
-    this->Conv=0.01;
+    this->Conv=0.001;
     this->numel=0;
     this->iter=0;
     this->CurrSizes=NULL;
@@ -54,11 +54,11 @@ seg_LabFusion::seg_LabFusion(int _numb_classif, int numbclasses, int _Numb_Neigh
             {
                 if(k==j)
                 {
-                    ConfusionMatrix[k+j*numbclasses+i*numbclasses*numbclasses]=0.95;
+                    ConfusionMatrix[k+j*numbclasses+i*numbclasses*numbclasses]=0.80;
                 }
                 else
                 {
-                    ConfusionMatrix[k+j*numbclasses+i*numbclasses*numbclasses]=0.05/(numbclasses-1);
+                    ConfusionMatrix[k+j*numbclasses+i*numbclasses*numbclasses]=0.20/(numbclasses-1);
                 }
             }
         }
@@ -1379,65 +1379,55 @@ int seg_LabFusion::UpdateMRF()
 
 
 /* \/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/ */
+int seg_LabFusion::EstimateInitialDensity() {
+    categoricalLabelType *inputhumanRaterptr = static_cast<categoricalLabelType *>(this->inputCLASSIFIER->data);
 
-int seg_LabFusion::EstimateInitialDensity()
-{
-//    classifier_datatype * inputCLASSIFIERptr = static_cast<classifier_datatype *>(this->inputCLASSIFIER->data);
-//    int tempsum=0;
-//    int * propcount = new int [this->NumberOfLabels];
-//    for(long currlabelnumb=0; currlabelnumb<this->NumberOfLabels; currlabelnumb++)
-//    {
-//        propcount[currlabelnumb]=0;
-//        this->Prop[currlabelnumb]=0;
-//    }
-//    for( int i=0; i<this->numel; i++)
-//    {
-//        if(this->maskAndUncertainIndeces[i]>=0)
-//        {
-//            tempsum+=1;
-//            for(long classifier=0; classifier<this->numb_classif; classifier++)
-//            {
-//                propcount[inputCLASSIFIERptr[i+this->numel*classifier]]++;
-//
-//                //cout << (float)inputCLASSIFIERptr[i+this->numel*classifier];
-//            }
-//            //cout << "\n";
-//        }
-//   }
-    for(long currlabelnumb=0; currlabelnumb<this->NumberOfLabels; currlabelnumb++)
-    {
+
+    int tempsum = 0;
+    int *propcount = new int[this->NumberOfLabels];
+    for (int currlabelnumb = 0; currlabelnumb < this->NumberOfLabels; currlabelnumb++) {
+        propcount[currlabelnumb] = 0;
+        this->Prop[currlabelnumb] = 0;
+    }
+    for (int i = 0; i < this->numel; i++) {
+        if (this->maskAndUncertainIndeces[i] >= 0) {
+            tempsum += 1;
+            for (int humanRater = 0; humanRater < this->numb_classif; humanRater++) {
+                propcount[inputhumanRaterptr[i + this->numel * humanRater]]++;
+
+                //cout << (float)inputhumanRaterptr[i+this->numel*humanRater];
+            }
+            //cout << "\n";
+        }
+    }
+    for (int currlabelnumb = 0; currlabelnumb < this->NumberOfLabels; currlabelnumb++) {
         //cout<<"\tlabel["<<currlabelnumb<<"] - "<<propcount[currlabelnumb]<<" - "<<tempsum<<endl;
-        //this->Prop[currlabelnumb]=propcount[currlabelnumb]/(LabFusion_datatype)((float)tempsum*(float)this->numb_classif);
-        this->Prop[currlabelnumb]=1.0f/this->NumberOfLabels;
+        this->Prop[currlabelnumb] =
+                propcount[currlabelnumb] / (segPrecisionTYPE) ((float) tempsum * (float) this->numb_classif);
     }
 
     // Adding the 0.0001 trace amount and renormalise works like an EPS for numerical precision.
-//    float tempsum2=0.0f;
-//    for(long currlabelnumb=0; currlabelnumb<this->NumberOfLabels; currlabelnumb++)
-//    {
-//        this->Prop[currlabelnumb]=(this->Prop[currlabelnumb]+0.0001f);
-//        tempsum2+=this->Prop[currlabelnumb];
-//    }
-//    for(long currlabelnumb=0; currlabelnumb<this->NumberOfLabels; currlabelnumb++)
-//    {
-//        //cout<<"\tlabel["<<currlabelnumb<<"] - "<<this->Prop[currlabelnumb]<<endl;
-//        this->Prop[currlabelnumb]=(this->Prop[currlabelnumb])/(LabFusion_datatype)(tempsum2);;
-//    }
-//
-//    delete [] propcount;
-//    if(this->verbose_level>0)
-//    {
-//        cout << "Estimating initial proportion"<<endl;
-//        if(this->verbose_level>0)
-//        {
-//            for(long currlabelnumb=0; currlabelnumb<this->NumberOfLabels; currlabelnumb++)
-//            {
-//                cout<<"\tlabel["<<currlabelnumb<<"] - "<<this->Prop[currlabelnumb]<<endl;
-//            }
-//        }
-//        flush(cout);
-//    }
+    float tempsum2 = 0.0f;
+    for (int currlabelnumb = 0; currlabelnumb < this->NumberOfLabels; currlabelnumb++) {
+        this->Prop[currlabelnumb] = (this->Prop[currlabelnumb] + 0.0001f);
+        tempsum2 += this->Prop[currlabelnumb];
+    }
+    for (int currlabelnumb = 0; currlabelnumb < this->NumberOfLabels; currlabelnumb++) {
+        //cout<<"\tlabel["<<currlabelnumb<<"] - "<<this->Prop[currlabelnumb]<<endl;
+        this->Prop[currlabelnumb] = (this->Prop[currlabelnumb]) / (segPrecisionTYPE) (tempsum2);;
+    }
 
+    delete[] propcount;
+    if (this->verbose_level > 0) {
+        cout << "Estimating initial proportion" << endl;
+        if (this->verbose_level > 0) {
+            for (int currlabelnumb = 0; currlabelnumb < this->NumberOfLabels; currlabelnumb++) {
+                cout << "\tlabel[" << currlabelnumb << "] - " << this->Prop[currlabelnumb] << endl;
+            }
+        }
+        flush(cout);
+
+    }
     return 1;
 
 }
