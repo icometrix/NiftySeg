@@ -9,6 +9,16 @@
         ARCHIVE DESTINATION ${CMAKE_INSTALL_PREFIX}/lib
     )
     INSTALL(FILES ${NAME}.h _seg_matrix.h DESTINATION include)
+
+    SET(NAME _seg_tools_old)
+    ADD_LIBRARY(${NAME} ${LIBRARY_TYPE} ${NAME}.h ${NAME}.cpp _seg_matrix.h)
+    TARGET_LINK_LIBRARIES(${NAME} _seg_FMM_old _seg_nifti)
+    INSTALL(TARGETS ${NAME}
+            RUNTIME DESTINATION ${CMAKE_INSTALL_PREFIX}/bin
+            LIBRARY DESTINATION ${CMAKE_INSTALL_PREFIX}/lib
+            ARCHIVE DESTINATION ${CMAKE_INSTALL_PREFIX}/lib
+            )
+    INSTALL(FILES ${NAME}.h _seg_matrix.h DESTINATION include)
     ##add_dependencies(_seg_tools Eigen)
 
     SET(NAME _seg_FMM)
@@ -18,6 +28,46 @@
             LIBRARY DESTINATION ${CMAKE_INSTALL_PREFIX}/lib
             ARCHIVE DESTINATION ${CMAKE_INSTALL_PREFIX}/lib
     )
+    INSTALL(FILES ${NAME}.h DESTINATION include)
+    #add_dependencies(_seg_FMM Eigen)
+
+    SET(NAME _seg_Topo_old)
+    ADD_LIBRARY(${NAME} ${LIBRARY_TYPE} ${NAME}.h ${NAME}.cpp)
+    INSTALL(TARGETS ${NAME}
+            RUNTIME DESTINATION ${CMAKE_INSTALL_PREFIX}/bin
+            LIBRARY DESTINATION ${CMAKE_INSTALL_PREFIX}/lib
+            ARCHIVE DESTINATION ${CMAKE_INSTALL_PREFIX}/lib
+            )
+    INSTALL(FILES ${NAME}.h DESTINATION include)
+    #add_dependencies(_seg_FMM Eigen)
+
+    SET(NAME _seg_FMM_old)
+    ADD_LIBRARY(${NAME} ${LIBRARY_TYPE} ${NAME}.h ${NAME}.cpp)
+    INSTALL(TARGETS ${NAME}
+            RUNTIME DESTINATION ${CMAKE_INSTALL_PREFIX}/bin
+            LIBRARY DESTINATION ${CMAKE_INSTALL_PREFIX}/lib
+            ARCHIVE DESTINATION ${CMAKE_INSTALL_PREFIX}/lib
+            )
+    INSTALL(FILES ${NAME}.h DESTINATION include)
+    #add_dependencies(_seg_FMM Eigen)
+
+    SET(NAME _seg_BiasCorrection_old)
+    ADD_LIBRARY(${NAME} ${LIBRARY_TYPE} ${NAME}.h ${NAME}.cpp)
+    INSTALL(TARGETS ${NAME}
+            RUNTIME DESTINATION ${CMAKE_INSTALL_PREFIX}/bin
+            LIBRARY DESTINATION ${CMAKE_INSTALL_PREFIX}/lib
+            ARCHIVE DESTINATION ${CMAKE_INSTALL_PREFIX}/lib
+            )
+    INSTALL(FILES ${NAME}.h DESTINATION include)
+    #add_dependencies(_seg_FMM Eigen)
+
+    SET(NAME _seg_MRF_old)
+    ADD_LIBRARY(${NAME} ${LIBRARY_TYPE} ${NAME}.h ${NAME}.cpp)
+    INSTALL(TARGETS ${NAME}
+            RUNTIME DESTINATION ${CMAKE_INSTALL_PREFIX}/bin
+            LIBRARY DESTINATION ${CMAKE_INSTALL_PREFIX}/lib
+            ARCHIVE DESTINATION ${CMAKE_INSTALL_PREFIX}/lib
+            )
     INSTALL(FILES ${NAME}.h DESTINATION include)
     #add_dependencies(_seg_FMM Eigen)
 
@@ -40,6 +90,16 @@
             LIBRARY DESTINATION ${CMAKE_INSTALL_PREFIX}/lib
             ARCHIVE DESTINATION ${CMAKE_INSTALL_PREFIX}/lib
     )
+    INSTALL(FILES ${NAME}.h DESTINATION include)
+
+    SET(NAME _seg_EM_old)
+    ADD_LIBRARY(${NAME} ${LIBRARY_TYPE} ${NAME}.h ${NAME}.cpp)
+    TARGET_LINK_LIBRARIES(${NAME} _seg_nifti _seg_tools_old _seg_FMM_old _seg_MRF_old _seg_BiasCorrection_old)
+    INSTALL(TARGETS ${NAME}
+            RUNTIME DESTINATION ${CMAKE_INSTALL_PREFIX}/bin
+            LIBRARY DESTINATION ${CMAKE_INSTALL_PREFIX}/lib
+            ARCHIVE DESTINATION ${CMAKE_INSTALL_PREFIX}/lib
+            )
     INSTALL(FILES ${NAME}.h DESTINATION include)
 
     SET(NAME _seg_LabFusion)
