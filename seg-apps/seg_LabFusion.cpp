@@ -115,7 +115,7 @@ int main(int argc, char **argv)
         bool PropUpdate=false;
         float tmpP=0;
         float tmpQ=0;
-        float conv=0.01;
+        float conv=0.001;
         int dilunc=0;
         float uncthres=-1;
 
