@@ -1632,8 +1632,9 @@ void seg_EM_old::RunExpectation() {
                                                                     0.01);
                 OutliernessTmpPTR[i + Expec_offset[cl]] = outvalue;
             }
+            // Update the Expectation by calculating, Prior*GaussianPDF
             ExpectationTmpPTR[i + Expec_offset[cl]] =
-                    IterPrior[i + Expec_offset[cl]] * expf(mahal) * inv_sqrt_V_2pi[cl];
+                    IterPrior[i + Expec_offset[cl]] * (inv_sqrt_V_2pi[cl] * expf(mahal));
             // Update the normaliser
             SumExpec += ExpectationTmpPTR[i + Expec_offset[cl]];
         }
