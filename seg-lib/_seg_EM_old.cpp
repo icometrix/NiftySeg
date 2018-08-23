@@ -149,22 +149,25 @@ seg_EM_old::~seg_EM_old() {
 }
 
 /* \/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/ */
-
-void seg_EM_old::SetInputImage(nifti_image *r) {
-    this->InputImage = r;
+/// @brief Defines the input image and all the image sizes.
+/// @param _r The image pointer. This pointer is owned by the caller.
+///
+/// Note that the nifti_image pointer is owned by the caller, but the called should not free the pointer while seg_EM is still using it. More specifically, seg_EM will use _r internally, but will not free it when clearing the object.
+void seg_EM_old::SetInputImage(nifti_image *_r) {
+    this->InputImage = _r;
     this->inputImage_status = true;
-    // Size
-    this->dimensions =
-            (int) ((r->nx) > 1) + (int) ((r->ny) > 1) + (int) ((r->nz) > 1) + (int) ((r->nt) > 1) + (int) ((r->nu) > 1);
-    this->nx = r->nx;
-    this->ny = r->ny;
-    this->nz = r->nz;
-    this->nt = r->nt;
-    this->nu = r->nu;
-    this->dx = r->dx;
-    this->dy = r->dy;
-    this->dz = r->dz;
-    this->numElements = r->nz * r->ny * r->nx;
+    // Count the number of dimensions with size above 1.
+    this->dimensions = (int) ((_r->nx) > 1) + (int) ((_r->ny) > 1) + (int) ((_r->nz) > 1) + (int) ((_r->nt) > 1) +
+                       (int) ((_r->nu) > 1);
+    this->nx = _r->nx;
+    this->ny = _r->ny;
+    this->nz = _r->nz;
+    this->nt = (_r->nt > 1) ? _r->nt : 1;
+    this->nu = (_r->nu > 1) ? _r->nu : 1;
+    this->dx = _r->dx;
+    this->dy = _r->dy;
+    this->dz = _r->dz;
+    this->numElements = _r->nz * _r->ny * _r->nx;
     if (this->nx == 1 || this->ny == 1) {
         cout << "Error: The segmentation algorithm only takes 2D, 3D and 5D images. 2D images should be on the XY plane"
              << endl;
@@ -174,29 +177,37 @@ void seg_EM_old::SetInputImage(nifti_image *r) {
     return;
 }
 
-
-void seg_EM_old::SetMAP(float *M, float *V) {
+/* \/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/ */
+/// @brief Defines the the mean and variances of a semiconjugate prior distribution over the actual model mean this->M
+/// @param _M Pointer to the prior Gaussian Means.
+/// @param _V Pointer to the prior Gaussian Variances.
+///
+/// Note that the data is copied internally. Thus, the user can delete the input pointers.
+void seg_EM_old::SetMAP(segPrecisionTYPE *_M, segPrecisionTYPE *_V) {
     this->mapStatus = true;
-    this->MAP_M = new float[this->numberOfClasses];
-    this->MAP_V = new float[this->numberOfClasses];
+    this->MAP_M = new segPrecisionTYPE[this->numberOfClasses];
+    this->MAP_V = new segPrecisionTYPE[this->numberOfClasses];
 
 
     for (int i = 0; i < this->numberOfClasses; i++) {
-        this->MAP_M[i] = M[i];
-        this->MAP_V[i] = V[i];
+        this->MAP_M[i] = _M[i];
+        this->MAP_V[i] = _V[i];
     }
 
     return;
 }
 
 /* \/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/ */
-
-void seg_EM_old::SetPriorImage(nifti_image *r) {
-    this->Priors = r;
+/// @brief Defines the input anatomical priors.
+/// @param _r The prior pointer. This pointer is owned by the caller.
+///
+/// Note that the nifti_image pointer is owned by the caller, but the called should not free the pointer while seg_EM is still using it. More specifically, seg_EM will use _r internally, but will not free it when clearing the object.
+void seg_EM_old::SetPriorImage(nifti_image *_r) {
+    this->Priors = _r;
     this->priorsStatus = true;
     // Size
-    this->dimensions = (int) ((r->nx) > 1) + (int) ((r->ny) > 1) + (int) ((r->nz) > 1);
-    if (this->nx == r->nx && this->ny == r->ny && this->nz == r->nz) {
+    this->dimensions = (int) ((_r->nx) > 1) + (int) ((_r->ny) > 1) + (int) ((_r->nz) > 1);
+    if (this->nx == _r->nx && this->ny == _r->ny && this->nz == _r->nz) {
         return;
     } else {
         cout << "ERROR: Priors have wrong dimensions" << endl;
@@ -207,18 +218,24 @@ void seg_EM_old::SetPriorImage(nifti_image *r) {
 }
 
 /* \/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/ */
+/// @brief Sets the filename of the output
+/// @param _f A char pointer to the output file name.
+///
 
-void seg_EM_old::SetFilenameOut(char *f) {
-    this->filenameOut = f;
+void seg_EM_old::SetFilenameOut(char *_f) {
+    this->filenameOut = _f;
     return;
 }
 
 
 /* \/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/ */
-
-void seg_EM_old::SetMaskImage(nifti_image *f) {
-    this->Mask = f;
-    this->maskImageStatus = true;
+/// @brief Defines the ROI mask.
+/// @param _r The mask pointer. This pointer is owned by the caller.
+///
+/// Note that the nifti_image pointer is owned by the caller, but the called should not free the pointer while seg_EM is still using it. More specifically, seg_EM will use _r internally, but will not free it when clearing the object. Also, note that if(Mask->datatype!=DT_BINARY), then the data in the input pointer will be modified, as it has to be converted to bool. Thus, the caller has to be carefull to delete the input, and has to be aware that the data was changed. This will be fixed in the near future.
+void seg_EM_old::SetMaskImage(nifti_image *_r) {
+    this->Mask = _r;
+    this->maskImageStatus = 1;
 
     if (Mask->datatype != DT_BINARY) {
         seg_convert2binary(Mask, 0.5f);
@@ -234,22 +251,24 @@ void seg_EM_old::SetMaskImage(nifti_image *f) {
     bool *MaskDataPtr = static_cast<bool *>(Mask->data);
     this->numElementsMasked = 0;
     for (int i = 0; i < this->numElements; i++, MaskDataPtr++) {
-        if ((*MaskDataPtr) > 0) {
+        if ((*MaskDataPtr)) {
             this->numElementsMasked++;
         }
     }
-    if (this->nx == f->nx && this->ny == f->ny && this->nz == f->nz) {
+    if (this->nx == _r->nx && this->ny == _r->ny && this->nz == _r->nz) {
         return;
     } else {
         cout << "ERROR: Mask has wrong dimensions" << endl;
         return;
     }
-
-    return;
 }
 
 /* \/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/ */
-
+/// @brief Sets the filename of the output
+/// @param verblevel An unsigned int defining the verbose level.
+///
+/// In this definition of verbose, verblevel==0 means no verbose, verblevel==1 means normal verbose, verblevel==2 is 'almost' debug level verbose.
+///
 void seg_EM_old::SetVerbose(unsigned int verblevel) {
     if (verblevel > 2) {
         this->verbose_level = 2;
@@ -261,8 +280,13 @@ void seg_EM_old::SetVerbose(unsigned int verblevel) {
 
 
 /* \/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/ */
-
-void seg_EM_old::SetRegValue(float reg) {
+/// @brief Sets the regularisation of the -ffdiagonal componentes of the covariance matrix
+/// @param reg A segPrecisionTYPE defining the regularisation value.
+///
+/// The off-diagonal componentes of the covariance matrix are divided by this->reg_factor in order to improve the rank of the matrix (needs to be positive-semi-definite covariance).
+/// Thus, reg>1, making the off-diagonal smaller than it should be. This will reduce the model fit quality, but it will help the stability of the algorithm. It also makes the covariances more isotropic, reducing the amount of covariance between chanels.
+///
+void seg_EM_old::SetRegValue(segPrecisionTYPE reg) {
     if (reg >= 1) {
         this->reg_factor = reg;
     } else {
@@ -273,14 +297,26 @@ void seg_EM_old::SetRegValue(float reg) {
 }
 
 /* \/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/ */
-
+/// @brief Sets the maximum number of iterations.
+/// @param verblevel An unsigned int defining the maximum number of iterations.
+///
+/// this->maxIteration overrides the convergence criteria.
+///
 void seg_EM_old::SetMaximalIterationNumber(unsigned int numberiter) {
-    this->maxIteration = numberiter;
+    if (numberiter < 1) {
+        this->maxIteration = 1;
+    } else {
+        this->maxIteration = numberiter;
+    }
     return;
 }
 
 /* \/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/ */
-
+/// @brief Sets the minimum number of iterations
+/// @param verblevel An unsigned int defining the minimum number of iterations.
+///
+/// this->minIteration overrides the convergence criteria.
+///
 void seg_EM_old::SetMinIterationNumber(unsigned int numberiter) {
     this->minIteration = numberiter;
     this->checkpoint_iter = this->minIteration;
@@ -288,23 +324,40 @@ void seg_EM_old::SetMinIterationNumber(unsigned int numberiter) {
 }
 
 /* \/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/ */
+/// @brief Sets the convergence criteria threshold
+/// @param inConvCrit An float defining the minimum log lik ration increase
+///
+///
+void seg_EM_old::SetConvergenceCriteria(float inConvCrit) {
+    this->convCrit = inConvCrit;
+    return;
+}
 
-void seg_EM_old::SetMRF(float MRF_strenght) {
+
+
+
+/* \/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/ */
+/// @brief Allocates and sets the beta parameter of the MRF energy function.
+/// @param strength The MRF beta parameter
+///
+/// The beta parameter is defined as \f$\exp(-\beta U_{MRF})\f$
+///
+void seg_EM_old::SetMRF(segPrecisionTYPE strength) {
     this->mrfStatus = true;
-    this->mrfStrength = MRF_strenght;
-    this->MRFTransitionMatrix = new float[this->numberOfClasses * this->numberOfClasses]();
+    this->mrfStrength = strength;
+    this->MRFTransitionMatrix = new segPrecisionTYPE[this->numberOfClasses * this->numberOfClasses]();
     CreateDiagonalMRFTransitionMatrix();
 
 
-    if (this->maskImageStatus) {
-        this->MRF = new float[this->numElementsMasked * this->numberOfClasses * this->nu * this->nt]();
+    if (this->maskImageStatus > 0) {
+        this->MRF = new segPrecisionTYPE[this->numElementsMasked * this->numberOfClasses * this->nu * this->nt]();
         for (int i = 0; i < (this->numElementsMasked * this->numberOfClasses); i++) {
-            MRF[i] = (float) (1.0);
+            MRF[i] = (segPrecisionTYPE) (1.0);
         }
     } else {
-        this->MRF = new float[this->numElements * this->numberOfClasses * this->nu * this->nt]();
+        this->MRF = new segPrecisionTYPE[this->numElements * this->numberOfClasses * this->nu * this->nt]();
         for (int i = 0; i < (this->numElements * this->numberOfClasses); i++) {
-            MRF[i] = (float) (1.0);
+            MRF[i] = (segPrecisionTYPE) (1.0);
         }
     }
 
