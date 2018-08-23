@@ -49,18 +49,18 @@ seg_EM_old::seg_EM_old(int _numb_classes, int _nu,int _nt)
     this->oldloglik=1.0;
 
 
-    this->maskImage_status=false;
+    this->maskImageStatus=false;
     this->Mask=NULL; // pointer to external
     this->numElementsMasked=0;
 
-    this->Priors_status=false;
+    this->priorsStatus=false;
     this->Priors=NULL;
 
     this->mrfStatus=false;
     this->MRF_strength=0.0f;
     this->MRF=NULL;
-    this->MRF_beta=NULL;
-    this->MRF_transitionMatrix=NULL;
+    this->MRFBeta=NULL;
+    this->MRFTransitionMatrix=NULL;
 
     this->Outlierness=NULL;
     this->OutliernessUSE=NULL;
@@ -75,7 +75,7 @@ seg_EM_old::seg_EM_old(int _numb_classes, int _nu,int _nt)
     this->BiasField_ratio=0;
 
     this->LoAd_phase=-1;
-    this->PV_model_status=false;
+    this->pvModelStatus=false;
     this->SG_deli_status=false;
     this->Relax_status=false;
     this->Relax_factor=0;
@@ -115,12 +115,12 @@ seg_EM_old::~seg_EM_old()
 
     if(this->mrfStatus){
         delete [] this->MRF;
-        delete [] this->MRF_transitionMatrix;
+        delete [] this->MRFTransitionMatrix;
     }
     this->MRF=NULL;
-    this->MRF_transitionMatrix=NULL;
+    this->MRFTransitionMatrix=NULL;
 
-    if(this->maskImage_status){
+    if(this->maskImageStatus){
         delete [] this->L2S;
         delete [] this->S2L;
 
@@ -176,7 +176,7 @@ int seg_EM_old::SetMAP( float *M, float* V)
 int seg_EM_old::SetPriorImage(nifti_image *r)
 {
     this->Priors = r;
-    this->Priors_status = true;
+    this->priorsStatus = true;
     // Size
     this->dimentions=(int)((r->nx)>1)+(int)((r->ny)>1)+(int)((r->nz)>1);
     if(this->nx==r->nx && this->ny==r->ny && this->nz==r->nz){
@@ -204,7 +204,7 @@ int seg_EM_old::SetFilenameOut(char *f)
 int seg_EM_old::SetMaskImage(nifti_image *f)
 {
     this->Mask = f;
-    this->maskImage_status = true;
+    this->maskImageStatus = true;
 
     if(Mask->datatype!=DT_BINARY){
         seg_convert2binary(Mask,0.5f);
@@ -295,11 +295,11 @@ int seg_EM_old::Turn_MRF_ON(float strength)
 {
     this->mrfStatus=true;
     this->MRF_strength=strength;
-    this->MRF_transitionMatrix=new float[this->numberOfClasses*this->numberOfClasses]();
+    this->MRFTransitionMatrix=new float[this->numberOfClasses*this->numberOfClasses]();
     Create_diagonal_MRF_transitionMatrix();
 
 
-    if(this->maskImage_status){
+    if(this->maskImageStatus){
         this->MRF=new float[this->numElementsMasked*this->numberOfClasses*this->nu*this->nt]();
         for(int i=0; i<(this->numElementsMasked*this->numberOfClasses); i++){
             MRF[i]=(float)(1.0);
@@ -332,7 +332,7 @@ int seg_EM_old::Turn_BiasField_ON(int powerOrder,float ratiothresh)
     this->BiasField_order=powerOrder;
     this->BiasField_coeficients = new segPrecisionTYPE[((powerOrder+1)*(powerOrder+2)/2*(powerOrder+3)/3)*this->nu*this->nt]();
     this->BiasField_ratio=ratiothresh;
-    if(this->maskImage_status){
+    if(this->maskImageStatus){
         this->BiasField = new segPrecisionTYPE[this->numElementsMasked*this->nu*this->nt]();
     }
     else{
@@ -348,10 +348,10 @@ int seg_EM_old::Create_diagonal_MRF_transitionMatrix()
     for(int i=0;i<this->numberOfClasses;i++){
         for(int j=0;j<this->numberOfClasses;j++){
             if(j==i){
-                this->MRF_transitionMatrix[i+j*this->numberOfClasses]=0;
+                this->MRFTransitionMatrix[i+j*this->numberOfClasses]=0;
             }
             else{
-                this->MRF_transitionMatrix[i+j*this->numberOfClasses]=this->MRF_strength;
+                this->MRFTransitionMatrix[i+j*this->numberOfClasses]=this->MRF_strength;
             }
         }
     }
@@ -813,33 +813,268 @@ void seg_EM_old::RunExpectation()
 
 }
 
-/* \/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/ */
 
-int seg_EM_old::RunMRF()
+/* \/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/ */
+/// @brief Optimisation function taking care of the MRF optimisation step
+///
+/// This function will run the MRF in 2D or 3D depending on the clique structure. A ND version is coming soon, providing a temporal MRF.
+///
+void seg_EM_old::RunMRF()
 {
-    if(this->nz>1){
-        if(this->mrfStatus){
-            if(this->maskImage_status){
-                MRFregularization_mask(this->Expec,this->MRF_transitionMatrix,this->MRF_transitionMatrix,this->MRF_beta,this->MRF,this->ShortPrior,this->L2S,this->S2L,this->CurrSizes,this->mrfStatus, this->verbose_level);
-            }
-            else{
-                MRFregularization(this->Expec,this->MRF_transitionMatrix,this->MRF_transitionMatrix,this->MRF_beta,this->MRF,this->ShortPrior,this->CurrSizes,this->mrfStatus, this->verbose_level);
-            }
-        }
+    if(this->nz>1)
+    {
+        RunMRF3D();
     }
-    else if(this->nz==1){
-        if(this->mrfStatus){
-            if(this->maskImage_status){
-                MRFregularization_mask2D(this->Expec,this->MRF_transitionMatrix,this->MRF_transitionMatrix,this->MRF_beta,this->MRF,this->ShortPrior,this->L2S,this->S2L,this->CurrSizes,this->mrfStatus, this->verbose_level);
-            }
-            else{
-                MRFregularization2D(this->Expec,this->MRF_transitionMatrix,this->MRF_transitionMatrix,this->MRF_beta,this->MRF,this->ShortPrior,this->CurrSizes,this->mrfStatus, this->verbose_level);
-            }
-        }
+    else if(this->nz==1)
+    {
+        RunMRF2D();
     }
-    return 1;
+    return;
 }
 
+/* \/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/ */
+/// @brief Optimisation function taking care of the 2D MRF
+///
+/// Estimates the 2D MRF energy given the MRFTransitionMatrix. This is similar to this->RunMRF3D() but in 2D. \sa this->RunMRF3D()
+///
+void seg_EM_old::RunMRF2D()
+{
+
+    int numelmasked=this->numElementsMasked;
+    int numclass=this->numberOfClasses;
+    segPrecisionTYPE * G =this->MRFTransitionMatrix;
+
+    // if the MRF optimisation is ON
+    if(this->mrfStatus)
+    {
+        // Define all the pointers and varibles
+        segPrecisionTYPE * MRFpriorPtr = (segPrecisionTYPE *) this->MRF;
+        int * Long_2_Short_IndicesPtr = (int *) this->L2S;
+        int col_size, indexCentre, indexWest, indexEast, indexSouth, indexNorth;
+        int ix, iy,maxiy, maxix, neighbourclass;
+        segPrecisionTYPE Sum_Temp_MRF_Class_Expect;
+        segPrecisionTYPE Gplane[maxNumbClass];
+        segPrecisionTYPE Temp_MRF_Class_Expect[maxNumbClass];
+        register int currclass;
+        unsigned int numelmasked_currclass_shift[maxNumbClass];
+        col_size = (int)(this->nx);
+        maxix = (int)(this->nx);
+        maxiy = (int)(this->ny);
+
+
+        if(verbose_level>0)
+        {
+            cout << "Optimising MRF"<<endl;
+            flush(cout);
+        }
+
+        // precompute the index shifts between modalities (performance reasons)
+        for(int i=0; i<numclass; i++)
+        {
+            numelmasked_currclass_shift[i]=i*numelmasked;
+        }
+
+        // As it is 2D, iterate over all Y and X's
+        int curr_short_centreindex;
+        for (iy=1; iy<maxiy-1; iy++)
+        {
+            // This updates the indexCentre to the correct column
+            indexCentre=(col_size*iy);
+            for (ix=1; ix<maxix-1; ix++)
+            {
+                // indexcentre is incremented before because ix starts at 1
+                indexCentre++;
+                Sum_Temp_MRF_Class_Expect = 0;
+                curr_short_centreindex=Long_2_Short_IndicesPtr[indexCentre];
+
+                if (curr_short_centreindex>=0)
+                {
+                    // Get the index of all the 4 neighbours
+                    indexWest=Long_2_Short_IndicesPtr[indexCentre-col_size]>-1?Long_2_Short_IndicesPtr[indexCentre-col_size]:0;
+                    indexEast=Long_2_Short_IndicesPtr[indexCentre+col_size]>-1?Long_2_Short_IndicesPtr[indexCentre+col_size]:0;
+                    indexNorth=Long_2_Short_IndicesPtr[indexCentre-1]>-1?Long_2_Short_IndicesPtr[indexCentre-1]:0;
+                    indexSouth=Long_2_Short_IndicesPtr[indexCentre+1]>-1?Long_2_Short_IndicesPtr[indexCentre+1]:0;
+                    for (currclass=0; currclass<numclass; currclass++)
+                    {
+                        // Get the sum of the expectations for each class over all the neighbours
+                        Gplane[currclass] = 0.0;
+                        Temp_MRF_Class_Expect[currclass] = 0.0;
+                        Gplane[currclass]+=this->Expec[indexWest];
+                        Gplane[currclass]+=this->Expec[indexEast];
+                        Gplane[currclass]+=this->Expec[indexNorth];
+                        Gplane[currclass]+=this->Expec[indexSouth];
+                        // increment the indexes to shift them to the next class
+                        if(currclass<numclass)
+                        {
+                            indexWest+=numelmasked;
+                            indexEast+=numelmasked;
+                            indexNorth+=numelmasked;
+                            indexSouth+=numelmasked;
+                        }
+                    }
+                    // After you have the probabilities, estimate exp(-Beta*U_MRF), with U_MRF beeing the sum over all classes of G*Gplane
+                    for (currclass=0; currclass<numclass; currclass++)
+                    {
+                        for (neighbourclass=0; neighbourclass<numclass; neighbourclass++)
+                        {
+                            Temp_MRF_Class_Expect[currclass]-=G[currclass+(numclass)*neighbourclass]*Gplane[neighbourclass];
+                        }
+
+                        if(this->MRFBeta==NULL)
+                        {
+                            Temp_MRF_Class_Expect[currclass] = exp(Temp_MRF_Class_Expect[currclass])*this->ShortPrior[curr_short_centreindex+numelmasked_currclass_shift[currclass]];
+                        }
+                        else
+                        {
+                            Temp_MRF_Class_Expect[currclass] = exp(this->MRFBeta[curr_short_centreindex]*Temp_MRF_Class_Expect[currclass])*this->ShortPrior[curr_short_centreindex+numelmasked_currclass_shift[currclass]];
+                        }
+                        // Also estimate the normaliser
+                        Sum_Temp_MRF_Class_Expect += Temp_MRF_Class_Expect[currclass];
+                    }
+                    // Normalise the MRF prob using the MRF_Exp/Sum_MRF_Exp
+                    for (currclass=0; currclass<numclass; currclass++)
+                    {
+                        MRFpriorPtr[curr_short_centreindex+numelmasked_currclass_shift[currclass]]=(Temp_MRF_Class_Expect[currclass]/Sum_Temp_MRF_Class_Expect);
+                    }
+                }
+            }
+        }
+
+    }
+    return;
+
+}
+
+
+/* \/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/ */
+/// @brief Optimisation function taking care of the 3D MRF
+///
+/// Estimates the 3D MRF energy given the MRFTransitionMatrix. This is similar to this->RunMRF2D() but in 3D. \sa this->RunMRF2D()
+///
+void seg_EM_old::RunMRF3D()
+{
+    int numelmasked=this->numElementsMasked;
+    int numclass=this->numberOfClasses;
+
+    segPrecisionTYPE * G =this->MRFTransitionMatrix;
+    segPrecisionTYPE * H =this->MRFTransitionMatrix;
+
+    // if the MRF optimisation is ON
+    if(this->mrfStatus)
+    {
+        segPrecisionTYPE * MRFpriorPtr = (segPrecisionTYPE *)this->MRF;
+        int * Long_2_Short_IndicesPtr = (int *)this->L2S;
+        int col_size, plane_size;
+        int maxiy, maxix, maxiz;
+        col_size = (int)(this->nx);
+        plane_size = (int)(this->nx)*(this->ny);
+
+        maxix = (int)(this->nx);
+        maxiy = (int)(this->ny);
+        maxiz = (int)(this->nz);
+
+        if(verbose_level>0)
+        {
+            cout << "Optimising MRF"<<endl;
+            flush(cout);
+        }
+
+        unsigned int numelmasked_currclass_shift[maxNumbClass];
+
+        // precompute the index shifts between modalities (performance reasons)
+        for(int i=0; i<numclass; i++)
+        {
+            numelmasked_currclass_shift[i]=i*numelmasked;
+
+        }
+
+        segPrecisionTYPE * ExpectationTmpPTR = (segPrecisionTYPE *) this->Expec;
+
+#ifdef _OPENMP
+#pragma omp parallel for shared(ExpectationTmpPTR,MRFpriorPtr,Long_2_Short_IndicesPtr)
+#endif
+        // As it is 3D, iterate over all Z, Y and X's
+        for (int iz=1; iz<maxiz-1; iz++)
+        {
+            // Define all the pointers and varibles
+            segPrecisionTYPE Sum_Temp_MRF_Class_Expect;
+            register int currclass;
+            segPrecisionTYPE Temp_MRF_Class_Expect[maxNumbClass];
+            segPrecisionTYPE Gplane[maxNumbClass];
+            segPrecisionTYPE Hplane[maxNumbClass];
+            int indexCentre, indexWest, indexEast, indexSouth, indexNorth, indexTop, indexBottom;
+            for (int iy=1; iy<maxiy-1; iy++)
+            {
+                indexCentre=(col_size*iy)+(plane_size*iz);
+                for (int ix=1; ix<maxix-1; ix++)
+                {
+                    // indexcentre is incremented before because ix starts at 1
+                    indexCentre++;
+                    Sum_Temp_MRF_Class_Expect = 0;
+                    int curr_short_centreindex=Long_2_Short_IndicesPtr[indexCentre];
+                    if (curr_short_centreindex>=0)
+                    {
+                        // Get the index of all the 6 neighbours
+                        indexWest=Long_2_Short_IndicesPtr[indexCentre-col_size]>-1?Long_2_Short_IndicesPtr[indexCentre-col_size]:0;
+                        indexEast=Long_2_Short_IndicesPtr[indexCentre+col_size]>-1?Long_2_Short_IndicesPtr[indexCentre+col_size]:0;
+                        indexNorth=Long_2_Short_IndicesPtr[indexCentre-1]>-1?Long_2_Short_IndicesPtr[indexCentre-1]:0;
+                        indexSouth=Long_2_Short_IndicesPtr[indexCentre+1]>-1?Long_2_Short_IndicesPtr[indexCentre+1]:0;
+                        indexBottom=Long_2_Short_IndicesPtr[indexCentre+plane_size]>-1?Long_2_Short_IndicesPtr[indexCentre+plane_size]:0;
+                        indexTop=Long_2_Short_IndicesPtr[indexCentre-plane_size]>-1?Long_2_Short_IndicesPtr[indexCentre-plane_size]:0;
+                        for (currclass=0; currclass<numclass; currclass++)
+                        {
+                            // Get the sum of the expectations for each class over all the neighbours
+                            Gplane[currclass] = 0.0;
+                            Hplane[currclass] = 0.0;
+                            Temp_MRF_Class_Expect[currclass] = 0.0;
+                            Gplane[currclass]+=ExpectationTmpPTR[indexWest];
+                            Gplane[currclass]+=ExpectationTmpPTR[indexEast];
+                            Gplane[currclass]+=ExpectationTmpPTR[indexNorth];
+                            Gplane[currclass]+=ExpectationTmpPTR[indexSouth];
+                            Hplane[currclass]+=ExpectationTmpPTR[indexTop];
+                            Hplane[currclass]+=ExpectationTmpPTR[indexBottom];
+                            // increment the indexes to shift them to the next class
+
+                            if(currclass<numclass)
+                            {
+                                indexWest+=numelmasked;
+                                indexEast+=numelmasked;
+                                indexNorth+=numelmasked;
+                                indexSouth+=numelmasked;
+                                indexTop+=numelmasked;
+                                indexBottom+=numelmasked;
+                            }
+                        }
+                        // After you have the probabilities, estimate exp(-Beta*U_MRF), with U_MRF beeing the sum over all classes of ( G*Gplane + H*Hplane )
+
+                        for (currclass=0; currclass<numclass; currclass++)
+                        {
+                            for (int neighbourclass=0; neighbourclass<numclass; neighbourclass++)
+                            {
+                                Temp_MRF_Class_Expect[currclass]-=G[currclass+(numclass)*neighbourclass]*Gplane[neighbourclass]+H[currclass+(numclass)*neighbourclass]*Hplane[neighbourclass];
+                            }
+                            if(this->MRFBeta==NULL)
+                            {
+                                Temp_MRF_Class_Expect[currclass] = exp(Temp_MRF_Class_Expect[currclass])*this->ShortPrior[curr_short_centreindex+numelmasked_currclass_shift[currclass]];
+                            }
+                            else
+                            {
+                                Temp_MRF_Class_Expect[currclass] = exp(this->MRFBeta[curr_short_centreindex]*Temp_MRF_Class_Expect[currclass])*this->ShortPrior[curr_short_centreindex+numelmasked_currclass_shift[currclass]];
+                            }
+                            // Estimate the normaliser
+                            Sum_Temp_MRF_Class_Expect+=Temp_MRF_Class_Expect[currclass];
+                        }
+                        // Normalise the MRF prob using the MRF_Exp/Sum_MRF_Exp
+                        for (currclass=0; currclass<numclass; currclass++)
+                        {
+                            MRFpriorPtr[curr_short_centreindex+numelmasked_currclass_shift[currclass]]=(Temp_MRF_Class_Expect[currclass]/Sum_Temp_MRF_Class_Expect);
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
 
 /* \/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/ */
 
@@ -847,7 +1082,7 @@ int seg_EM_old::RunBiasField()
 {
     if(this->BiasField_status){
         if((((this->loglik-this->oldloglik)/fabs(this->oldloglik))<(segPrecisionTYPE)(this->BiasField_ratio) && this->iter>3)||((segPrecisionTYPE)(this->BiasField_ratio)==0.0f)){
-            if(this->maskImage_status){
+            if(this->maskImageStatus){
                 if(this->nz>1){
 
                     BiasCorrection_mask(this->BiasField,this->BiasField_coeficients,this->InputImage,this->L2S,Expec,this->OutliernessUSE,this->M,this->V,this->BiasField_order,CurrSizes,this->BiasField_status,this->verbose_level);
@@ -871,7 +1106,7 @@ int seg_EM_old::RunPriorRelaxation()
 {
     if(this->Relax_status){
 
-        if(this->maskImage_status){
+        if(this->maskImageStatus){
             if((int)(this->verbose_level)>(int)(0)){
                 cout << "Relaxing Priors"<< endl;
             }
@@ -892,8 +1127,8 @@ int seg_EM_old::RunPriorRelaxation()
 
 int seg_EM_old::InitializeAndNormalizeImageAndPriors()
 {
-    if(this->maskImage_status){
-        if(this->Priors_status)Normalize_NaN_Priors_mask(this->Priors,this->Mask,this->verbose_level);
+    if(this->maskImageStatus){
+        if(this->priorsStatus)Normalize_NaN_Priors_mask(this->Priors,this->Mask,this->verbose_level);
         Normalize_Image_mask(this->InputImage,this->Mask,CurrSizes,this->verbose_level);
 
         this->S2L = Create_Short_2_Long_Matrix_from_NII(this->Mask,&(CurrSizes->numelmasked));
@@ -901,7 +1136,7 @@ int seg_EM_old::InitializeAndNormalizeImageAndPriors()
         this->numElementsMasked=(CurrSizes->numelmasked);
     }
     else{
-        if(this->Priors_status)Normalize_NaN_Priors(this->Priors,this->verbose_level);
+        if(this->priorsStatus)Normalize_NaN_Priors(this->Priors,this->verbose_level);
 
         Normalize_Image(this->InputImage,CurrSizes,this->verbose_level);
     }
@@ -922,76 +1157,99 @@ int seg_EM_old::InitializeAndNormalizeImageAndPriors()
 
 /* \/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/ */
 
-int seg_EM_old::Allocate_and_Initialize()
+void seg_EM_old::InitializeAndAllocate()
 {
+    if(this->priorsStatus)
+    {
+        register long numel=(int)(this->Mask->nx*this->Mask->ny*this->Mask->nz);
+        register long numel_masked=0;
 
-
-    if(this->Priors_status){
-        if(this->maskImage_status){
-            this->Expec = Create_cArray_from_Prior_mask(this->Mask,this->Priors,CurrSizes->numclass,this->PV_model_status);
-            this->ShortPrior = Create_cArray_from_Prior_mask(this->Mask,this->Priors,CurrSizes->numclass,this->PV_model_status);
+        bool * Maskptrtmp = static_cast<bool *> (this->Mask->data);
+        for (long i=0; i<numel; i++, Maskptrtmp++)
+        {
+            *Maskptrtmp?numel_masked++:0;
         }
-        else{
-            this->Expec = Create_cArray_from_Prior(this->Priors,CurrSizes->numclass,this->PV_model_status);
-            this->ShortPrior = Create_cArray_from_Prior(this->Priors,CurrSizes->numclass,this->PV_model_status);
+        int pluspv=(int)(this->pvModelStatus)*2;
+
+        this->Expec = new segPrecisionTYPE [numel_masked*(this->numberOfClasses+pluspv)] ();
+        segPrecisionTYPE * tempExpec= (segPrecisionTYPE *) Expec;
+        this->ShortPrior = new segPrecisionTYPE [numel_masked*(this->numberOfClasses+pluspv)] ();
+        segPrecisionTYPE * tempShortPrior= (segPrecisionTYPE *) ShortPrior;
+        segPrecisionTYPE * PriorPTR = static_cast<segPrecisionTYPE *>(this->Priors->data);
+        for(long cl=0; cl<this->numberOfClasses; cl++)
+        {
+            Maskptrtmp = static_cast<bool *> (this->Mask->data);;
+            for (int i=numel; i--; Maskptrtmp++,PriorPTR++)
+            {
+                if(*Maskptrtmp)
+                {
+                    *tempExpec = *PriorPTR;
+                    *tempShortPrior= *PriorPTR;
+                    tempExpec++;
+                    tempShortPrior++;
+                }
+            }
         }
     }
-    else{
-        Intensity_Based_Inisitalization_of_Means();
+    else
+    {
+        this->InitializeMeansUsingIntensity();
         int tmpnumb_elem=0;
-        if(this->maskImage_status){
-            tmpnumb_elem=(this->numElementsMasked*(this->numberOfClasses+(int)(this->PV_model_status)*2));
+        if(this->maskImageStatus>0)
+        {
+            tmpnumb_elem=(this->numElementsMasked*(this->numberOfClasses+(int)(this->pvModelStatus)*2));
         }
-        else{
-            tmpnumb_elem=(numElements*(this->numberOfClasses+(int)(this->PV_model_status)*2));
+        else
+        {
+            tmpnumb_elem=(numElements*(this->numberOfClasses+(int)(this->pvModelStatus)*2));
         }
 
-        float tmpnumb_clas=((this->numberOfClasses+(int)(this->PV_model_status)*2));
+        segPrecisionTYPE tmpnumb_clas=((this->numberOfClasses+(int)(this->pvModelStatus)*2));
         this->Expec=new segPrecisionTYPE [tmpnumb_elem] ();
         this->ShortPrior=new segPrecisionTYPE [tmpnumb_elem] ();
-        for(int i=0; i<tmpnumb_elem; i++){
+        for(int i=0; i<tmpnumb_elem; i++)
+        {
             this->Expec[i]=1.0/tmpnumb_clas;
             this->ShortPrior[i]=1.0/tmpnumb_clas;
         }
-        for (int cl=0; cl<this->numberOfClasses; cl++)
-            if(this->maskImage_status){
-                calcE_mask(this->InputImage,this->ShortPrior,this->Expec,&this->loglik,this->BiasField,NULL,0,this->S2L,this->M,this->V,CurrSizes,this->verbose_level);
-            }
-            else{
-                calcE(this->InputImage,this->ShortPrior,this->Expec,&this->loglik,this->BiasField,NULL,0,this->M,this->V,CurrSizes,this->verbose_level);
-            }
+        this->RunExpectation();
 
     }
 
     for (int cl=0; cl<this->numberOfClasses; cl++)
-
-        if(this->outliernessStatus){
+    {
+        if(this->outliernessStatus)
+        {
             int tmpnumb_elem=0;
-            if(this->maskImage_status){
-                tmpnumb_elem=(this->numElementsMasked*(this->numberOfClasses+(int)(this->PV_model_status)*2));
+            if(this->maskImageStatus>0)
+            {
+                tmpnumb_elem=(this->numElementsMasked*(this->numberOfClasses+(int)(this->pvModelStatus)*2));
             }
-            else{
-                tmpnumb_elem=(numElements*(this->numberOfClasses+(int)(this->PV_model_status)*2));
+            else
+            {
+                tmpnumb_elem=(numElements*(this->numberOfClasses+(int)(this->pvModelStatus)*2));
             }
             this->OutliernessUSE=NULL;
             this->Outlierness=new segPrecisionTYPE [tmpnumb_elem] ();
-            for(int i=0; i<tmpnumb_elem; i++){
+            for(int i=0; i<tmpnumb_elem; i++)
+            {
                 this->Outlierness[i]=1.0;
             }
         }
+    }
 
-    return 0;
+    return;
 
 }
 
 /* \/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/ */
-int seg_EM_old::Intensity_Based_Inisitalization_of_Means()
+int seg_EM_old::InitializeMeansUsingIntensity()
 {
 
     for(int ms=0; ms<this->nu; ms++){
         segPrecisionTYPE * Intensity_PTR = static_cast<segPrecisionTYPE *>(this->InputImage->data);
         bool * MaskDataPtr=NULL;
-        if(this->maskImage_status){
+        if(this->maskImageStatus){
             MaskDataPtr = static_cast<bool *>(this->Mask->data);
         }
         int mycounter=0;
@@ -999,7 +1257,7 @@ int seg_EM_old::Intensity_Based_Inisitalization_of_Means()
         float variance=0.0;
 
         for(int i=0; i<this->numElements; i++){
-            if(!this->maskImage_status || MaskDataPtr[i]>0){
+            if(!this->maskImageStatus || MaskDataPtr[i]>0){
                 mycounter++;
                 meanval+=(Intensity_PTR[i+ms*this->numElements]);
             }
@@ -1007,7 +1265,7 @@ int seg_EM_old::Intensity_Based_Inisitalization_of_Means()
         meanval=meanval/mycounter;
 
         for(int i=0; i<this->numElements; i++){
-            if(!this->maskImage_status || MaskDataPtr[i]>0 ){
+            if(!this->maskImageStatus || MaskDataPtr[i]>0 ){
                 variance+=pow((meanval-Intensity_PTR[i+ms*this->numElements]),2);
             }
         }
@@ -1022,7 +1280,7 @@ int seg_EM_old::Intensity_Based_Inisitalization_of_Means()
 
 
         for(int i=0; i<this->numElements; i++){
-            if(!this->maskImage_status || MaskDataPtr[i]>0){
+            if(!this->maskImageStatus || MaskDataPtr[i]>0){
                 if(tmpmax<(int)(Intensity_PTR[i+ms*this->numElements])){
                     tmpmax=(int)(Intensity_PTR[i+ms*this->numElements]);
                 }
@@ -1033,7 +1291,7 @@ int seg_EM_old::Intensity_Based_Inisitalization_of_Means()
         }
 
         for(int i=0; i<this->numElements; i++){
-            if(!this->maskImage_status || MaskDataPtr[i]>0){
+            if(!this->maskImageStatus || MaskDataPtr[i]>0){
 
                 int index4hist=(int)(1000.0f*(float)(Intensity_PTR[i+ms*this->numElements]-tmpmin)/(float)(tmpmax-tmpmin));
                 if((index4hist>1000) & (index4hist<0)){
@@ -1151,7 +1409,7 @@ nifti_image * seg_EM_old::GetResult()
 {
     nifti_image * Result=NULL;
 
-    if(this->maskImage_status){
+    if(this->maskImageStatus){
         Result = Copy_Expec_to_Result_mask(this->Expec,this->S2L,this->InputImage,(char*)this->FilenameOut.c_str(),this->CurrSizes);
     }
     else{
@@ -1166,7 +1424,7 @@ nifti_image * seg_EM_old::GetResultNew(char * fileName)
 {
     nifti_image * Result=NULL;
 
-    if(this->maskImage_status){
+    if(this->maskImageStatus){
         Result = Copy_Correct_Expec_to_Result_mask(this->Expec,this->Outlierness,this->S2L,this->InputImage,fileName,this->CurrSizes);
     }
     else{
@@ -1183,7 +1441,7 @@ nifti_image * seg_EM_old::GetBiasCorrected(char * filename)
 {
     nifti_image * Result=NULL;
 
-    if(this->maskImage_status){
+    if(this->maskImageStatus){
         Result = Get_Bias_Corrected_mask(this->BiasField_coeficients,this->InputImage,filename,this->CurrSizes,this->BiasField_order);
     }
     else{
@@ -1212,7 +1470,7 @@ nifti_image * seg_EM_old::GetOutlierness(char * filename)
 
 
 
-    if(this->maskImage_status){
+    if(this->maskImageStatus){
         for(int i=0; i<CurrSizes->numelmasked; i++){
             float currsum=0;
             for(int currclass=0; currclass<CurrSizes->numclass;currclass++){
@@ -1249,7 +1507,7 @@ int *  seg_EM_old::Run_EM()
     if((int)(this->verbose_level)>(int)(0)){
         cout << "EM: Verbose level " << this->verbose_level << endl;
     }
-    if(!Priors_status){
+    if(!priorsStatus){
 
     }
 
@@ -1258,7 +1516,7 @@ int *  seg_EM_old::Run_EM()
     }
 
     InitializeAndNormalizeImageAndPriors();
-    Allocate_and_Initialize();
+    InitializeAndAllocate();
     if((int)(this->verbose_level)>(int)(0)){
         cout << "Number of voxels inside the mask = " << this->numElementsMasked << endl;
     }
@@ -1292,6 +1550,9 @@ int *  seg_EM_old::Run_EM()
          * */
         this->RunExpectation();
         //MRF
+        /*
+         * No Additional Difference
+         * */
         this->RunMRF();
         //Bias Correction
         this->RunBiasField();

@@ -48,19 +48,19 @@ protected:
 
     // Mask
     nifti_image*    Mask; // pointer to external
-    bool    maskImage_status;
+    bool    maskImageStatus;
     int     numElementsMasked;
 
     // Priors Specific
-    bool    Priors_status;
+    bool    priorsStatus;
     nifti_image*  Priors;
 
     // MRF Specific
     bool    mrfStatus;
     float   MRF_strength;
     float*  MRF;
-    float*  MRF_beta;
-    float*  MRF_transitionMatrix; // G matrix
+    float*  MRFBeta;
+    float*  MRFTransitionMatrix; // G matrix
 
     float * Outlierness;
     float * OutliernessUSE;
@@ -78,7 +78,7 @@ protected:
 
     // LoAd Specific
     int LoAd_phase;
-    bool PV_model_status;
+    bool pvModelStatus;
     bool SG_deli_status;
     bool Relax_status;
     float  Relax_factor;
@@ -93,13 +93,15 @@ protected:
     int Create_CurrSizes();
     void RunMaximization();
     void RunExpectation();
-    int RunMRF();
+    void RunMRF();
+    void RunMRF3D();
+    void RunMRF2D();
     int RunPriorRelaxation();
     int RunBiasField();
     int UpdateOutlierness();
     int InitializeAndNormalizeImageAndPriors();
-    int Allocate_and_Initialize();
-    int Intensity_Based_Inisitalization_of_Means();
+    void InitializeAndAllocate();
+    int InitializeMeansUsingIntensity();
 
 public:
     seg_EM_old(int numb_classes,int NumbMultiSpec,int NumbTimePoints);

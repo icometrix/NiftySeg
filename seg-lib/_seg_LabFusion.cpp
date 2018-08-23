@@ -2068,17 +2068,17 @@ int  seg_LabFusion::Run_STAPLE_or_STEPS()
         if(this->NCC_status )
         {
             cout << "Number of raters used = "<< this->Numb_Neigh<<endl;
-            cout << "MRF_beta = " << this->MRF_strength<<endl;
+            cout << "MRFBeta = " << this->MRF_strength<<endl;
         }
         else if(this->LNCC_status)
         {
             cout << "Number of local raters used = "<< this->Numb_Neigh<<endl;
-            cout << "MRF_beta = " << this->MRF_strength<<endl;
+            cout << "MRFBeta = " << this->MRF_strength<<endl;
         }
         else
         {
             cout << "Using all classifiers"<<endl;
-            cout << "MRF_beta = " << this->MRF_strength<<endl;
+            cout << "MRFBeta = " << this->MRF_strength<<endl;
         }
     }
     if(this->verbose_level>0)

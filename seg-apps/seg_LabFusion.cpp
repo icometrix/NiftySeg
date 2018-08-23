@@ -61,7 +61,7 @@ void Usage(char *exec)
     printf("\t-prop_update \t\t\t| Update label proportions at each iteration.\n");
     //printf("\t-dil_unc <int> \t\t\t| Dilate uncertainty region by <int>.\n");
     printf("\t-setPQ <P> <Q> \t\t\t| Value of P and Q [ 0 < (P,Q) < 1 ] (default = 0.99 0.99) \n");
-    printf("\t-MRF_beta <float>\t\t| MRF prior strength [ 0 < beta < 5 ] \n");
+    printf("\t-MRFBeta <float>\t\t| MRF prior strength [ 0 < beta < 5 ] \n");
     printf("\t-max_iter <int>\t\t\t| Maximum number of iterations (default = 15)\n");
     printf("\t-uncthres <float>\t\t| If <float> percent of labels agree, then area is not uncertain \n");
     printf("\t-conv <float>\t\t\t| Ratio for convergence (default epsilon = 10^-5)\n\n");
@@ -377,18 +377,18 @@ int main(int argc, char **argv)
             {
                 verbose_level=(int)atoi(argv[++i]);
             }
-            else if(strcmp(argv[i], "-MRF_beta") == 0 && (i+1)<argc)
+            else if(strcmp(argv[i], "-MRFBeta") == 0 && (i+1)<argc)
             {
                 MRF_strength=(SegPrecisionTYPE)atof(argv[++i]);
                 if(MRF_strength>4)
                 {
-                    cout << "WARNING: MRF Beta strenght should be less than 4. Setting MRF_beta=4."<< endl;
+                    cout << "WARNING: MRF Beta strenght should be less than 4. Setting MRFBeta=4."<< endl;
                     MRF_strength=4;
 
                 }
                 else if(MRF_strength<0)
                 {
-                    cout << "WARNING: MRF Beta strenght should be more than 0. MRF_beta will be off."<< endl;
+                    cout << "WARNING: MRF Beta strenght should be more than 0. MRFBeta will be off."<< endl;
                     MRF_strength=0;
 
                 }
