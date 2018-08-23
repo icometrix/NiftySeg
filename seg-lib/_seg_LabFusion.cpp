@@ -14,7 +14,7 @@ seg_LabFusion::seg_LabFusion(int _numb_classif, int numbclasses, int _Numb_Neigh
     oldloglik=0.001;
 
     // Size
-    this->dimentions=4;
+    this->dimensions=4;
     this->nx=0;
     this->ny=0;
     this->nz=0;
@@ -187,7 +187,7 @@ int seg_LabFusion::SetinputCLASSIFIER(nifti_image *r,bool UNCERTAINflag)
     this->inputImage_status = true;
     this->uncertainflag=UNCERTAINflag;
     // Size
-    this->dimentions=(int)((r->nx)>1)+(int)((r->ny)>1)+(int)((r->nz)>1)+(int)((r->nt)>1)+(int)((r->nu)>1);
+    this->dimensions=(int)((r->nx)>1)+(int)((r->ny)>1)+(int)((r->nz)>1)+(int)((r->nt)>1)+(int)((r->nu)>1);
     this->nx=r->nx;
     this->ny=r->ny;
     this->nz=r->nz;

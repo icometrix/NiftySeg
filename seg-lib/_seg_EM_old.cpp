@@ -2,35 +2,44 @@
 #define _SEG_EM_CPP
 
 #include "_seg_EM_old.h"
-#include "_seg_matrix.h"
 
+
+/// @brief Class constructor that takes in the number of classes and the number of multimodal data (nu*nt).
+/// As multiple time points (nt) are treated in the same way as multimodal data (nu), the value of this->nt is set to 1,
+/// and the value of this->nu is set to nu*nt
+/// @param _numb_classes The number of classes
+/// @param _nu The number of modalities per time point
+/// @param _nt The number of time points
 seg_EM_old::seg_EM_old(int _numb_classes, int _nu, int _nt) {
 
-    this->InputImage = NULL; // pointer to external
+    this->InputImage = NULL;  // pointer to external
 
     this->filenameOut = "Segmentation.nii.gz";
 
-    this->dimentions = 1;
+    this->dimensions = 1;
     this->nx = 1;
     this->ny = 0;
     this->nz = 0;
     this->nu = _nu * _nt;
     this->nt = 1;
+
     this->dx = 0;
     this->dy = 0;
     this->dz = 0;
+
+
     this->numElements = 0;
-    this->aprox = true;
+
+
     this->iter = 0;
-    this->checkpoint_iter = 0;
     this->ratio = 1000;
 
     this->numberOfClasses = _numb_classes;
-    this->M = new float[maxMultispectalSize * maxNumbClass];
+    this->M = new segPrecisionTYPE[maxMultispectalSize * maxNumbClass];
     for (int i = 0; i < (maxMultispectalSize * maxNumbClass); i++) {
         this->M[i] = 0.0f;
     }
-    this->V = new float[maxMultispectalSize * maxMultispectalSize * maxNumbClass];
+    this->V = new segPrecisionTYPE[maxMultispectalSize * maxMultispectalSize * maxNumbClass];
     for (int i = 0; i < (maxMultispectalSize * maxMultispectalSize * maxNumbClass); i++) {
         this->V[i] = 0.0f;
     }
@@ -42,22 +51,24 @@ seg_EM_old::seg_EM_old(int _numb_classes, int _nu, int _nt) {
     this->CurrSizes = NULL;
     this->reg_factor = 1.1f;
 
-    this->maxIteration = 100;
+    this->maxIteration = 30;
     this->minIteration = 4;
+    this->convCrit = 0.0005;
+
     this->verbose_level = 0;
     this->loglik = 2.0;
     this->oldloglik = 1.0;
 
 
-    this->maskImageStatus = false;
-    this->Mask = NULL; // pointer to external
+    this->maskImageStatus = 0;
+    this->Mask = NULL;        // pointer to external
     this->numElementsMasked = 0;
 
     this->priorsStatus = false;
-    this->Priors = NULL;
+    this->Priors = NULL;      // pointer to external
 
     this->mrfStatus = false;
-    this->MRF_strength = 0.0f;
+    this->mrfStrength = 0.0f;
     this->MRF = NULL;
     this->MRFBeta = NULL;
     this->MRFTransitionMatrix = NULL;
@@ -73,10 +84,11 @@ seg_EM_old::seg_EM_old(int _numb_classes, int _nu, int _nt) {
     this->BiasField = NULL;
     this->biasFieldCoeficients = NULL;
     this->biasFieldRatio = 0;
+    this->numelBias = 0;
 
-    this->LoAd_phase = -1;
+    this->stageLoAd = -1;
     this->pvModelStatus = false;
-    this->SG_deli_status = false;
+    this->sgDelineationStatus = false;
     this->relaxStatus = false;
     this->relaxFactor = 0;
     this->relaxGaussKernelSize = 0;
@@ -87,6 +99,8 @@ seg_EM_old::seg_EM_old(int _numb_classes, int _nu, int _nt) {
 /* \/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/ */
 /* \/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/ */
 
+/// @brief Class destructor which deletes all pointers that are different from null (deffiend) and owned by the seg_EM object.
+/// The destructor does not delete the *inputImage, *Priors and *Mask pointers as they are not owned by the object.
 seg_EM_old::~seg_EM_old() {
     if (this->Expec != NULL) {
         delete[] this->Expec;
@@ -119,23 +133,28 @@ seg_EM_old::~seg_EM_old() {
     this->MRF = NULL;
     this->MRFTransitionMatrix = NULL;
 
-    if (this->maskImageStatus) {
+    if (this->maskImageStatus > 0) {
         delete[] this->L2S;
         delete[] this->S2L;
-
     }
 
     if (this->CurrSizes != NULL)
         delete[] this->CurrSizes;
+
+    if (this->M != NULL)
+        delete[] this->M;
+
+    if (this->V != NULL)
+        delete[] this->V;
 }
 
 /* \/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/ */
 
-int seg_EM_old::SetInputImage(nifti_image *r) {
+void seg_EM_old::SetInputImage(nifti_image *r) {
     this->InputImage = r;
     this->inputImage_status = true;
     // Size
-    this->dimentions =
+    this->dimensions =
             (int) ((r->nx) > 1) + (int) ((r->ny) > 1) + (int) ((r->nz) > 1) + (int) ((r->nt) > 1) + (int) ((r->nu) > 1);
     this->nx = r->nx;
     this->ny = r->ny;
@@ -149,14 +168,14 @@ int seg_EM_old::SetInputImage(nifti_image *r) {
     if (this->nx == 1 || this->ny == 1) {
         cout << "Error: The segmentation algorithm only takes 2D, 3D and 5D images. 2D images should be on the XY plane"
              << endl;
-        return 1;
+        return;
     }
 
-    return 0;
+    return;
 }
 
 
-int seg_EM_old::SetMAP(float *M, float *V) {
+void seg_EM_old::SetMAP(float *M, float *V) {
     this->mapStatus = true;
     this->MAP_M = new float[this->numberOfClasses];
     this->MAP_V = new float[this->numberOfClasses];
@@ -167,21 +186,21 @@ int seg_EM_old::SetMAP(float *M, float *V) {
         this->MAP_V[i] = V[i];
     }
 
-    return 0;
+    return;
 }
 
 /* \/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/ */
 
-int seg_EM_old::SetPriorImage(nifti_image *r) {
+void seg_EM_old::SetPriorImage(nifti_image *r) {
     this->Priors = r;
     this->priorsStatus = true;
     // Size
-    this->dimentions = (int) ((r->nx) > 1) + (int) ((r->ny) > 1) + (int) ((r->nz) > 1);
+    this->dimensions = (int) ((r->nx) > 1) + (int) ((r->ny) > 1) + (int) ((r->nz) > 1);
     if (this->nx == r->nx && this->ny == r->ny && this->nz == r->nz) {
-        return 0;
+        return;
     } else {
-        cout << "ERROR: Priors have wrong dimentions" << endl;
-        return 1;
+        cout << "ERROR: Priors have wrong dimensions" << endl;
+        return;
     }
 
 
@@ -189,15 +208,15 @@ int seg_EM_old::SetPriorImage(nifti_image *r) {
 
 /* \/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/ */
 
-int seg_EM_old::SetFilenameOut(char *f) {
+void seg_EM_old::SetFilenameOut(char *f) {
     this->filenameOut = f;
-    return 0;
+    return;
 }
 
 
 /* \/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/ */
 
-int seg_EM_old::SetMaskImage(nifti_image *f) {
+void seg_EM_old::SetMaskImage(nifti_image *f) {
     this->Mask = f;
     this->maskImageStatus = true;
 
@@ -206,7 +225,7 @@ int seg_EM_old::SetMaskImage(nifti_image *f) {
     }
 
     if (Mask->nt > 1 || Mask->nt > 2) {
-        cout << "ERROR: Mask has wrong dimentions" << endl;
+        cout << "ERROR: Mask has wrong dimensions" << endl;
         this->Mask->nt = 1;
         this->Mask->nu = 1;
         this->Mask->ndim = 3;
@@ -220,69 +239,61 @@ int seg_EM_old::SetMaskImage(nifti_image *f) {
         }
     }
     if (this->nx == f->nx && this->ny == f->ny && this->nz == f->nz) {
-        return 0;
+        return;
     } else {
-        cout << "ERROR: Mask has wrong dimentions" << endl;
-        return 1;
+        cout << "ERROR: Mask has wrong dimensions" << endl;
+        return;
     }
 
-    return 0;
+    return;
 }
 
 /* \/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/ */
 
-int seg_EM_old::SetVerbose(unsigned int verblevel) {
+void seg_EM_old::SetVerbose(unsigned int verblevel) {
     if (verblevel > 2) {
         this->verbose_level = 2;
     } else {
         this->verbose_level = verblevel;
     }
-    return 0;
+    return;
 }
 
 
 /* \/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/ */
 
-int seg_EM_old::SetRegValue(float reg) {
+void seg_EM_old::SetRegValue(float reg) {
     if (reg >= 1) {
         this->reg_factor = reg;
     } else {
         this->reg_factor = 1;
         cout << "Non valid regularization value. Will assume -reg 1." << endl;
     }
-    return 0;
+    return;
 }
 
 /* \/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/ */
 
-int seg_EM_old::SetMaximalIterationNumber(unsigned int numberiter) {
+void seg_EM_old::SetMaximalIterationNumber(unsigned int numberiter) {
     this->maxIteration = numberiter;
-    return 0;
+    return;
 }
 
 /* \/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/ */
 
-int seg_EM_old::SetMinIterationNumber(unsigned int numberiter) {
+void seg_EM_old::SetMinIterationNumber(unsigned int numberiter) {
     this->minIteration = numberiter;
     this->checkpoint_iter = this->minIteration;
-    return 0;
+    return;
 }
 
 /* \/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/ */
 
-int seg_EM_old::SetAprox(bool aproxval) {
-    this->aprox = aproxval;
-    return 0;
-}
-
-
-/* \/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/ */
-
-int seg_EM_old::Turn_MRF_ON(float strength) {
+void seg_EM_old::SetMRF(float MRF_strenght) {
     this->mrfStatus = true;
-    this->MRF_strength = strength;
+    this->mrfStrength = MRF_strenght;
     this->MRFTransitionMatrix = new float[this->numberOfClasses * this->numberOfClasses]();
-    Create_diagonal_MRF_transitionMatrix();
+    CreateDiagonalMRFTransitionMatrix();
 
 
     if (this->maskImageStatus) {
@@ -297,21 +308,21 @@ int seg_EM_old::Turn_MRF_ON(float strength) {
         }
     }
 
-    Create_diagonal_MRF_transitionMatrix();
-    return 0;
+    CreateDiagonalMRFTransitionMatrix();
+    return;
 }
 
 
-int seg_EM_old::Turn_Relaxation_ON(float relax_factor, float relax_gauss_kernel) {
+void seg_EM_old::SetRelaxation(float relax_factor, float relax_gauss_kernel) {
     this->relaxStatus = true;
     this->relaxFactor = relax_factor;
     this->relaxGaussKernelSize = relax_gauss_kernel;
-    return 1;
+    return;
 }
 
 /* \/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/ */
 
-int seg_EM_old::Turn_BiasField_ON(int powerOrder, float ratiothresh) {
+void seg_EM_old::SetBiasField(int powerOrder, float ratiothresh) {
     this->biasFieldStatus = true;
     this->biasFieldOrder = powerOrder;
     this->biasFieldCoeficients = new segPrecisionTYPE[((powerOrder + 1) * (powerOrder + 2) / 2 * (powerOrder + 3) / 3) *
@@ -322,27 +333,27 @@ int seg_EM_old::Turn_BiasField_ON(int powerOrder, float ratiothresh) {
     } else {
         this->BiasField = new segPrecisionTYPE[this->numElements * this->nu * this->nt]();
     }
-    return 0;
+    return;
 }
 
 /* \/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/ */
 
-int seg_EM_old::Create_diagonal_MRF_transitionMatrix() {
+void seg_EM_old::CreateDiagonalMRFTransitionMatrix() {
     for (int i = 0; i < this->numberOfClasses; i++) {
         for (int j = 0; j < this->numberOfClasses; j++) {
             if (j == i) {
                 this->MRFTransitionMatrix[i + j * this->numberOfClasses] = 0;
             } else {
-                this->MRFTransitionMatrix[i + j * this->numberOfClasses] = this->MRF_strength;
+                this->MRFTransitionMatrix[i + j * this->numberOfClasses] = this->mrfStrength;
             }
         }
     }
-    return 0;
+    return;
 }
 
 /* \/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/ */
 
-int seg_EM_old::Create_CurrSizes() {
+void seg_EM_old::CreateCurrSizes() {
     this->CurrSizes = new ImageSize[1]();
     CurrSizes->numel = (int) (this->nx * this->ny * this->nz);
     CurrSizes->xsize = this->nx;
@@ -353,16 +364,16 @@ int seg_EM_old::Create_CurrSizes() {
     CurrSizes->numclass = this->numberOfClasses;
     CurrSizes->numelmasked = 0;
     CurrSizes->numelbias = 0;
-    return 0;
+    return;
 }
 
 /* \/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/ */
-int seg_EM_old::OutliernessON(float in_OutliernessThreshold, float ratio) {
+void seg_EM_old::SetOutlierness(float in_OutliernessThreshold, float ratio) {
 
     this->outliernessStatus = true;
     this->outliernessThreshold = in_OutliernessThreshold;
     this->outliernessRatio = ratio;
-    return 0;
+    return;
 }
 
 
@@ -1867,8 +1878,8 @@ void seg_EM_old::InitializeAndNormalizeImageAndPriors() {
     this->InitializeAndNormalizeNaNPriors();
     this->InitializeAndNormalizeImage();
 
-    this->CreateShort2LongMatrix_old();
-    this->CreateLong2ShortMatrix_old();
+    this->CreateShort2LongMatrix();
+    this->CreateLong2ShortMatrix();
 
     if (this->mapStatus) {
         for (int i = 0; i < this->numberOfClasses; i++) {
@@ -2027,6 +2038,7 @@ void seg_EM_old::CreateShort2LongMatrix() {
             (*Maskptrtmp) ? numel_masked++ : 0;
         }
         this->numElementsMasked = numel_masked;
+        CurrSizes->numelmasked=numel_masked;
 
         this->S2L = new int[numel_masked]();
         int *Short_2_Long_Indices_PTR = (int *) (this->S2L);
@@ -2075,74 +2087,8 @@ void seg_EM_old::CreateLong2ShortMatrix() {
     return;
 }
 
-
-void seg_EM_old::CreateShort2LongMatrix_old() {
-
-    int numel_masked=0;
-    int numel = this->Mask->nvox;
-    if(this->Mask->datatype==DT_BINARY){
-        bool * Maskptr = static_cast<bool *> (this->Mask->data);
-        bool * Maskptrtmp = Maskptr;
-        for (int i=0; i<numel; i++, Maskptrtmp++) {
-            (*Maskptrtmp)>0?numel_masked++:0;
-        }
-        CurrSizes->numelmasked=numel_masked;
-
-        int * Short_2_Long_Indices= new int [numel_masked]();
-        int * Short_2_Long_Indices_PTR = (int *)(Short_2_Long_Indices);
-
-        Maskptrtmp = Maskptr;
-        int tempindex=0;
-        for (int i=0; i<numel; i++) {
-            if ((*Maskptrtmp)>0) {
-                Short_2_Long_Indices_PTR[tempindex]=i;
-                tempindex++;
-            }
-            Maskptrtmp++;
-        }
-        this->S2L = Short_2_Long_Indices;
-    }
-    else {
-        printf("err\tCreate_Short_2_Long_Matrix\tWrong Mask datatype\n");
-        this->S2L = NULL;
-
-    }
-}
-
-void seg_EM_old::CreateLong2ShortMatrix_old() {
-    int numel = this->Mask->nvox;
-    int * Long_2_Short_Indices= new int [numel]();
-    if(this->Mask->datatype==DT_BINARY)
-    {
-        bool * Maskptr = static_cast<bool *> (this->Mask->data);
-        bool * Maskptrtmp = Maskptr;
-        int * Long_2_Short_Indices_PTR = (int *) Long_2_Short_Indices;
-
-        Maskptrtmp = Maskptr;
-        int tempindex=0;
-        for (int i=0; i<numel; i++,Maskptrtmp++,Long_2_Short_Indices_PTR++)
-        {
-            if (*Maskptrtmp)
-            {
-                (*Long_2_Short_Indices_PTR)=tempindex;
-                tempindex++;
-            }
-            else
-            {
-                (*Long_2_Short_Indices_PTR)=-1;
-            }
-        }
-        this->L2S = Long_2_Short_Indices;
-    }
-    else
-    {
-        cout<< "err\tCreate_Correspondace_Matrices\tWrong Mask datatype\n" << endl;
-    }
-    this->L2S = Long_2_Short_Indices;
-}
-
 /* \/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/ */
-int seg_EM_old::InitializeMeansUsingIntensity() {
+void seg_EM_old::InitializeMeansUsingIntensity() {
 
     for (int ms = 0; ms < this->nu; ms++) {
         segPrecisionTYPE *Intensity_PTR = static_cast<segPrecisionTYPE *>(this->InputImage->data);
@@ -2254,7 +2200,7 @@ int seg_EM_old::InitializeMeansUsingIntensity() {
         }
     }
 
-    return 0;
+    return;
 }
 
 /* \/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/ */
@@ -2353,16 +2299,124 @@ nifti_image *seg_EM_old::GetResult() {
 /* \/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/ */
 
 nifti_image *seg_EM_old::GetBiasCorrected(char *filename) {
-    nifti_image *Result = NULL;
 
-    if (this->maskImageStatus) {
-        Result = Get_Bias_Corrected_mask(this->biasFieldCoeficients, this->InputImage, filename, this->CurrSizes,
-                                         this->biasFieldOrder);
-    } else {
-        Result = Get_Bias_Corrected(this->BiasField, this->InputImage, filename, this->CurrSizes);
+    if (this->biasFieldOrder == 0) {
+        return NULL;
     }
-    return Result;
+    int UsedBasisFunctions = (int) (((float) (this->biasFieldOrder) + 1.0f) * ((float) (this->biasFieldOrder) + 2.0f) /
+                                    2.0f * ((float) (this->biasFieldOrder) + 3.0f) / 3.0f);
+    segPrecisionTYPE *InputImageData = static_cast<segPrecisionTYPE *>(this->InputImage->data);
 
+    nifti_image *Result = nifti_copy_nim_info(this->InputImage);
+    Result->dim[0] = 4;
+    Result->dim[4] = this->nu;
+    Result->datatype = this->InputImage->datatype;
+    Result->cal_max = (this->rescale_max[0]);
+    Result->scl_inter = 0;
+    Result->scl_slope = 1;
+
+    segPrecisionTYPE *brainmask = new segPrecisionTYPE[this->numElements];
+    bool *Maskptrtmp = static_cast<bool *> (this->Mask->data);;
+
+    for (long i = 0; i < (long) this->numElements; i++) {
+        if (InputImageData[i] != InputImageData[i]) {
+            brainmask[i] = 0.0f;
+        } else {
+            brainmask[i] = Maskptrtmp[i];
+        }
+    }
+    Dillate(brainmask, 7, CurrSizes);
+    Erosion(brainmask, 3, CurrSizes);
+    GaussianFilter4D_cArray(brainmask, 3.0f, CurrSizes);
+
+
+    nifti_set_filenames(Result, filename, 0, 0);
+    nifti_update_dims_from_array(Result);
+    nifti_datatype_sizes(Result->datatype, &Result->nbyper, &Result->swapsize);
+    Result->data = (void *) calloc(Result->nvox, sizeof(segPrecisionTYPE));
+    segPrecisionTYPE *BiasCorrected_PTR = static_cast<segPrecisionTYPE *>(Result->data);
+
+    segPrecisionTYPE BiasField = 0;
+    segPrecisionTYPE currxpower[maxAllowedBCPowerOrder] = {0};
+    segPrecisionTYPE currypower[maxAllowedBCPowerOrder] = {0};
+    segPrecisionTYPE currzpower[maxAllowedBCPowerOrder] = {0};
+    segPrecisionTYPE xpos = 0.0f;
+    segPrecisionTYPE ypos = 0.0f;
+    segPrecisionTYPE zpos = 0.0f;
+    segPrecisionTYPE not_point_five_times_dims_x = (0.5f * (segPrecisionTYPE) this->nx);
+    segPrecisionTYPE not_point_five_times_dims_y = (0.5f * (segPrecisionTYPE) this->ny);
+    segPrecisionTYPE not_point_five_times_dims_z = (0.5f * (segPrecisionTYPE) this->nz);
+    segPrecisionTYPE inv_not_point_five_times_dims_x = 1.0f / (0.5f * (segPrecisionTYPE) this->nx);
+    segPrecisionTYPE inv_not_point_five_times_dims_y = 1.0f / (0.5f * (segPrecisionTYPE) this->ny);
+    segPrecisionTYPE inv_not_point_five_times_dims_z = 1.0f / (0.5f * (segPrecisionTYPE) this->nz);
+    int ind = 0;
+
+    for (long multispec = 0; multispec < this->nu; multispec++) {
+
+        BiasCorrected_PTR = static_cast<segPrecisionTYPE *>(Result->data);
+        BiasCorrected_PTR = &BiasCorrected_PTR[multispec * this->numElements];
+        InputImageData = static_cast<segPrecisionTYPE *>(this->InputImage->data);
+        InputImageData = &InputImageData[multispec * this->numElements];
+
+        segPrecisionTYPE *BiasFieldCoefs_multispec = &this->biasFieldCoeficients[multispec * UsedBasisFunctions];
+
+
+        for (long i = 0; i < (long) this->numElements; i++) {
+            BiasCorrected_PTR[i] = 0;
+        }
+
+
+        segPrecisionTYPE to_resize = 0;
+        int index_full = 0;
+        for (int iz = 0; iz < this->nz; iz++) {
+            for (int iy = 0; iy < this->ny; iy++) {
+                for (int ix = 0; ix < this->nx; ix++) {
+                    BiasField = 0.0f;
+                    xpos = (((segPrecisionTYPE) ix - not_point_five_times_dims_x) * inv_not_point_five_times_dims_x);
+                    ypos = (((segPrecisionTYPE) iy - not_point_five_times_dims_y) * inv_not_point_five_times_dims_y);
+                    zpos = (((segPrecisionTYPE) iz - not_point_five_times_dims_z) * inv_not_point_five_times_dims_z);
+
+                    // Get the polynomial basis order
+                    int order = 1;
+                    currxpower[0] = 1;
+                    currypower[0] = 1;
+                    currzpower[0] = 1;
+                    int orderminusone = 0;
+                    int maxorderplusone = this->biasFieldOrder + 1;
+                    while (order < maxorderplusone) {
+                        currxpower[order] = currxpower[orderminusone] * xpos;
+                        currypower[order] = currypower[orderminusone] * ypos;
+                        currzpower[order] = currzpower[orderminusone] * zpos;
+                        order++;
+                        orderminusone++;
+                    }
+
+                    // Estimate the basis
+                    ind = 0;
+                    for (long order = 0; order <= this->biasFieldOrder; order++) {
+                        for (long xorder = 0; xorder <= order; xorder++) {
+                            for (long yorder = 0; yorder <= (order - xorder); yorder++) {
+                                int zorder = order - yorder - xorder;
+                                BiasField -= BiasFieldCoefs_multispec[ind] * currxpower[xorder] * currypower[yorder] *
+                                             currzpower[zorder];
+                                ind++;
+                            }
+                        }
+                    }
+                    BiasField *= brainmask[index_full];
+
+                    to_resize = exp((BiasField + InputImageData[index_full]) * 0.693147181) - 1;
+                    BiasCorrected_PTR[index_full] = (
+                            to_resize * (this->rescale_max[multispec] - this->rescale_min[multispec]) +
+                            this->rescale_min[multispec]);
+                    index_full++;
+                }
+            }
+        }
+    }
+    delete[] brainmask;
+
+    return Result;
 }
 
 /* \/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/ */
@@ -2412,7 +2466,7 @@ nifti_image *seg_EM_old::GetOutlierness(char *filename) {
 /* \/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/ */
 
 
-int *seg_EM_old::Run_EM() {
+void seg_EM_old::Run_EM() {
     time_t start, end;
     time(&start);
     if ((int) (this->verbose_level) > (int) (0)) {
@@ -2423,7 +2477,7 @@ int *seg_EM_old::Run_EM() {
     }
 
     if (this->CurrSizes == NULL) {
-        Create_CurrSizes();
+        CreateCurrSizes();
     }
 
     InitializeAndNormalizeImageAndPriors();
@@ -2506,7 +2560,7 @@ int *seg_EM_old::Run_EM() {
         int seconds = (int) (end - start - 60 * minutes);
         cout << "Finished in " << minutes << "min " << seconds << "sec" << endl;
     }
-    return 0;
+    return;
 }
 
 #endif

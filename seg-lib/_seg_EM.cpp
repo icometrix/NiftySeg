@@ -848,6 +848,7 @@ void seg_EM::CreateShort2LongMatrix() {
             (*Maskptrtmp) ? numel_masked++ : 0;
         }
         this->numElementsMasked = numel_masked;
+        //CurrSizes->numelmasked=numel_masked;
 
         this->S2L = new int[numel_masked]();
         int *Short_2_Long_Indices_PTR = (int *) (this->S2L);

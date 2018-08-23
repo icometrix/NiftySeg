@@ -16,7 +16,7 @@ protected:
     int     verbose_level;
 
     // Size
-    int     dimentions;
+    int     dimensions;
     int     nx;
     int     ny;
     int     nz;

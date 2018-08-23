@@ -517,18 +517,17 @@ int main(int argc, char **argv)
 
         SEG.SetVerbose(segment_param->verbose_level);
         SEG.SetFilenameOut(segment_param->filename_out);
-        SEG.SetAprox(segment_param->aprox);
         SEG.SetMaximalIterationNumber(segment_param->maxIteration);
         SEG.SetMinIterationNumber(segment_param->minIteration);
 
         if(segment_param->flag_Outlierness)
-            SEG.OutliernessON(segment_param->OutliernessThreshold,segment_param->OutliernessRatio);
+            SEG.SetOutlierness(segment_param->OutliernessThreshold,segment_param->OutliernessRatio);
         if(segment_param->flag_Bias)
-            SEG.Turn_BiasField_ON(segment_param->bias_order,segment_param->Bias_threshold);
+            SEG.SetBiasField(segment_param->bias_order,segment_param->Bias_threshold);
         if(segment_param->flag_MRF)
-            SEG.Turn_MRF_ON(segment_param->MRF_strength);
+            SEG.SetMRF(segment_param->MRF_strength);
         if(segment_param->relax_factor>0)
-            SEG.Turn_Relaxation_ON(segment_param->relax_factor,segment_param->relax_gauss_kernel);
+            SEG.SetRelaxation(segment_param->relax_factor,segment_param->relax_gauss_kernel);
         if(segment_param->flag_MAP)
             SEG.SetMAP(segment_param->MAP_M,segment_param->MAP_V);
         if(regularization_amount>0)
