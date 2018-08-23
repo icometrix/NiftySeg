@@ -796,7 +796,10 @@ void seg_EM_old::InitializeMeansUsingIntensity() {
 
 
 /* \/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/ */
-
+/// @brief Initialises the MRF transtition matri.
+///
+/// Sets MRF transition matrix to 0 in the diagonal and to this->mrfStrength in the offdiagonal.
+///
 void seg_EM_old::CreateDiagonalMRFTransitionMatrix() {
     for (int i = 0; i < this->numberOfClasses; i++) {
         for (int j = 0; j < this->numberOfClasses; j++) {
@@ -811,7 +814,10 @@ void seg_EM_old::CreateDiagonalMRFTransitionMatrix() {
 }
 
 /* \/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/ */
-
+/// @brief Creates the CurrSizes variable used when relaxin the priors or when outputing the bias field.
+///
+/// The CurrSizes is used as a bridge to stransport the image dimensions between the seg_EM object and basic c functions
+///
 void seg_EM_old::CreateCurrSizes() {
     this->CurrSizes = new ImageSize[1]();
     CurrSizes->numel = (int) (this->nx * this->ny * this->nz);
@@ -821,10 +827,461 @@ void seg_EM_old::CreateCurrSizes() {
     CurrSizes->usize = (this->nu > 1) ? this->nu : 1;
     CurrSizes->tsize = (this->nt > 1) ? this->nt : 1;
     CurrSizes->numclass = this->numberOfClasses;
-    CurrSizes->numelmasked = 0;
+    CurrSizes->numelmasked = this->numElementsMasked;
     CurrSizes->numelbias = 0;
+
     return;
 }
+
+/* \/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/ */
+/// @brief Creates a mapping to go from the masked vector to the full image.
+///
+/// This saves a lot of memory as the brain occupies 1/3 of the image size. This mapping is the inverse of the this->CreateLong2ShortMatrix() mapping.
+/// \sa this->CreateLong2ShortMatrix()
+///
+void seg_EM_old::CreateShort2LongMatrix() {
+    int numel_masked = 0;
+    int numel = this->Mask->nvox;
+    if (this->Mask->datatype == DT_BINARY) {
+        bool *Maskptr = static_cast<bool *> (this->Mask->data);
+        bool *Maskptrtmp = Maskptr;
+        for (int i = 0; i < numel; i++, Maskptrtmp++) {
+            (*Maskptrtmp) ? numel_masked++ : 0;
+        }
+        this->numElementsMasked = numel_masked;
+
+        this->S2L = new int[numel_masked]();
+        int *Short_2_Long_Indices_PTR = (int *) (this->S2L);
+
+        Maskptrtmp = Maskptr;
+        int tempindex = 0;
+        for (int i = 0; i < numel; i++) {
+            if (*Maskptrtmp) {
+                Short_2_Long_Indices_PTR[tempindex] = i;
+                tempindex++;
+            }
+            Maskptrtmp++;
+        }
+        return;
+    } else {
+        printf("Error:\tCreate_Short_2_Long_Matrix\tWrong Mask datatype\n");
+        this->S2L = NULL;
+        return;
+
+    }
+
+}
+
+/* \/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/ */
+/// @brief Creates a mapping to go from the full image to the masked vector.
+///
+/// This saves a lot of memory as the brain occupies 1/3 of the image size. This mapping is the inverse of the this->CreateShort2LongMatrix() mapping.
+/// \sa this->CreateShort2LongMatrix()
+///
+void seg_EM_old::CreateLong2ShortMatrix() {
+    int numel = this->Mask->nvox;
+    this->L2S = new int[numel]();
+    if (this->Mask->datatype == DT_BINARY) {
+        bool *Maskptr = static_cast<bool *> (this->Mask->data);
+        bool *Maskptrtmp = Maskptr;
+        int *Long_2_Short_Indices_PTR = (int *) L2S;
+
+        Maskptrtmp = Maskptr;
+        int tempindex = 0;
+        for (int i = 0; i < numel; i++, Maskptrtmp++, Long_2_Short_Indices_PTR++) {
+            if (*Maskptrtmp) {
+                (*Long_2_Short_Indices_PTR) = tempindex;
+                tempindex++;
+            } else {
+                (*Long_2_Short_Indices_PTR) = -1;
+            }
+        }
+        return;
+    } else {
+        cout << "Error:\tCreate_Correspondace_Matrices\tWrong Mask datatype\n" << endl;
+    }
+    return;
+}
+
+
+/* \/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/ */
+/// @brief Gets the Mean vector. This is normally used by the caller after the algorithm converges to obtain the model parameters.
+///
+/// This is normally used by the caller after the algorithm converges to obtain the model parameters. Note that the means are already put back into a non-log non-normalised form.
+///
+segPrecisionTYPE *seg_EM_old::GetMeans() {
+    segPrecisionTYPE *OutM = new segPrecisionTYPE[this->nu * this->numberOfClasses];
+    int index = 0;
+    for (int j = 0; j < (this->numberOfClasses); j++) {
+        for (int i = 0; i < (this->nu); i++) {
+            //cout << "M["<<j<<"]="<<this->M[j+i*this->numberOfClasses]<<endl;
+            segPrecisionTYPE resize = exp((this->M[index++]) * 0.693147181) - 1;
+            OutM[j + i * this->numberOfClasses] = (resize * (this->rescale_max[i] - this->rescale_min[i]) +
+                                                   this->rescale_min[i]);
+        }
+    }
+
+    return OutM;
+}
+
+
+
+/* \/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/ */
+/// @brief Gets the Mean vector. This is normally used by the caller after the algorithm converges to obtain the model parameters.
+///
+/// This is normally used by the caller after the algorithm converges to obtain the model parameters. Note that the means have to be pub back into a non-log non-normalised form.
+///
+segPrecisionTYPE *seg_EM_old::GetMeansLogTransformed() {
+    segPrecisionTYPE *OutM = new segPrecisionTYPE[this->nu * this->numberOfClasses];
+    int index = 0;
+    for (int j = 0; j < (this->numberOfClasses); j++) {
+        for (int i = 0; i < (this->nu); i++) {
+            //cout << "M["<<j<<"]="<<this->M[j+i*this->numberOfClasses]<<endl;
+            OutM[j + i * this->numberOfClasses] = (this->M[index++]);
+        }
+    }
+
+    return OutM;
+}
+
+/* \/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/ */
+/// @brief Gets the Covariance matrix.
+///
+/// This is normally used by the caller after the algorithm converges to obtain the model parameters. Note that the variances are in the log-transformed space and are not rescalled.
+///
+segPrecisionTYPE *seg_EM_old::GetSTD() {
+    segPrecisionTYPE *OutV = new segPrecisionTYPE[this->nu * this->numberOfClasses * this->numberOfClasses];
+    for (int i = 0; i < (this->nu); i++) {
+        for (int j = 0; j < (this->numberOfClasses * this->numberOfClasses); j++) {
+            float resize =
+                    exp((sqrt(this->V[j + i * this->numberOfClasses * this->numberOfClasses])) * 0.693147181) - 1;
+            int x = i / this->nu;//row
+            int y = i - (this->nu * x);//col
+            float rescale_1 = this->rescale_max[x] - this->rescale_min[x];
+            float rescale_2 = this->rescale_max[y] - this->rescale_min[y];
+            OutV[j + i * this->numberOfClasses * this->numberOfClasses] = (resize * (sqrt(rescale_1 * rescale_2)));
+        }
+    }
+
+    return OutV;
+}
+
+/* \/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/ */
+/// @brief Gets the Covariance matrix.
+///
+/// This is normally used by the caller after the algorithm converges to obtain the model parameters. Note that the variances are in the log-transformed space and are not rescalled.
+///
+segPrecisionTYPE *seg_EM_old::GetSTDLogTransformed() {
+    segPrecisionTYPE *OutV = new segPrecisionTYPE[this->nu * this->numberOfClasses * this->numberOfClasses];
+    for (int i = 0; i < (this->nu); i++) {
+        for (int j = 0; j < (this->numberOfClasses * this->numberOfClasses); j++) {
+            OutV[j + i * this->numberOfClasses * this->numberOfClasses] = this->V[j + i * this->numberOfClasses *
+                                                                                      this->numberOfClasses];
+        }
+    }
+
+    return OutV;
+}
+
+/* \/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/ */
+/// @brief Gets the final segmentation results.
+///
+/// Allocates the output result nifti_image structure and fills it with the already normalised results from the expectation vector.
+/// As Expec_PTR is only deffined within the mask, the this->S2L[i] is used to go from a masked index to the image index.
+///
+nifti_image *seg_EM_old::GetResult() {
+
+    nifti_image *Result = nifti_copy_nim_info(this->InputImage);
+    Result->dim[0] = 4;
+    Result->dim[4] = this->numberOfClasses;
+    Result->dim[5] = 1;
+    Result->scl_inter = 0;
+    Result->scl_slope = 1;
+    Result->datatype = this->InputImage->datatype;
+    Result->cal_max = 1;
+    Result->cal_min = 0;
+    nifti_set_filenames(Result, (char *) this->filenameOut.c_str(), 0, 0);
+    nifti_update_dims_from_array(Result);
+    nifti_datatype_sizes(Result->datatype, &Result->nbyper, &Result->swapsize);
+    Result->data = (void *) calloc(Result->nvox, sizeof(segPrecisionTYPE));
+    segPrecisionTYPE *Resultdata = static_cast<segPrecisionTYPE *>(Result->data);
+    // First, zero all the elements of Resultdata
+    for (unsigned int i = 0; i < Result->nvox; i++) {
+        Resultdata[i] = 0;
+    }
+
+    int class_nvox = Result->nx * Result->ny * Result->nz;
+    // Then, for each class
+    for (long currclass = 0; currclass < this->numberOfClasses; currclass++) {
+
+        // Get the vector pointer for the class
+        segPrecisionTYPE *Resultdata_class = &Resultdata[(currclass) * class_nvox];
+        segPrecisionTYPE *Expec_PTR = &Expec[(currclass) * this->numElementsMasked];
+        // Copy the probability from the masked vector Expec_PTR to the full image vector Resultdata_class.
+        // The copying requires using the mapping S2L to go from the masked vector index to the full image index
+        for (long i = 0; i < (long) this->numElementsMasked; i++, Expec_PTR++) {
+            Resultdata_class[this->S2L[i]] = *Expec_PTR;
+        }
+    }
+
+    return Result;
+
+}
+
+/* \/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/ */
+/// @brief Gets the final biasfield corrected result.
+///
+/// Allocates the output bias field corrected image.
+/// To do so, it needs to estimate the bias field, subtract it from the observations and then un-log transform and un-nomalise the image.
+/// The bias field correction is only done within the image.
+/// The boundaries of the bias field are then smoothed out using a gaussian filter in order to avoid bias field extrapolation problems.
+///
+nifti_image *seg_EM_old::GetBiasCorrected(char *filename) {
+
+    if (this->biasFieldOrder == 0) {
+        return NULL;
+    }
+    int UsedBasisFunctions = (int) (((float) (this->biasFieldOrder) + 1.0f) * ((float) (this->biasFieldOrder) + 2.0f) /
+                                    2.0f * ((float) (this->biasFieldOrder) + 3.0f) / 3.0f);
+    segPrecisionTYPE *InputImageData = static_cast<segPrecisionTYPE *>(this->InputImage->data);
+
+    nifti_image *Result = nifti_copy_nim_info(this->InputImage);
+    Result->dim[0] = 4;
+    Result->dim[4] = this->nu;
+    Result->datatype = this->InputImage->datatype;
+    Result->cal_max = (this->rescale_max[0]);
+    Result->scl_inter = 0;
+    Result->scl_slope = 1;
+
+    segPrecisionTYPE *brainmask = new segPrecisionTYPE[this->numElements];
+    bool *Maskptrtmp = static_cast<bool *> (this->Mask->data);;
+
+    for (long i = 0; i < (long) this->numElements; i++) {
+        if (InputImageData[i] != InputImageData[i]) {
+            brainmask[i] = 0.0f;
+        } else {
+            brainmask[i] = Maskptrtmp[i];
+        }
+    }
+    Dillate(brainmask, 7, CurrSizes);
+    Erosion(brainmask, 3, CurrSizes);
+    GaussianFilter4D_cArray(brainmask, 3.0f, CurrSizes);
+
+
+    nifti_set_filenames(Result, filename, 0, 0);
+    nifti_update_dims_from_array(Result);
+    nifti_datatype_sizes(Result->datatype, &Result->nbyper, &Result->swapsize);
+    Result->data = (void *) calloc(Result->nvox, sizeof(segPrecisionTYPE));
+    segPrecisionTYPE *BiasCorrected_PTR = static_cast<segPrecisionTYPE *>(Result->data);
+
+    segPrecisionTYPE BiasField = 0;
+    segPrecisionTYPE currxpower[maxAllowedBCPowerOrder] = {0};
+    segPrecisionTYPE currypower[maxAllowedBCPowerOrder] = {0};
+    segPrecisionTYPE currzpower[maxAllowedBCPowerOrder] = {0};
+    segPrecisionTYPE xpos = 0.0f;
+    segPrecisionTYPE ypos = 0.0f;
+    segPrecisionTYPE zpos = 0.0f;
+    segPrecisionTYPE not_point_five_times_dims_x = (0.5f * (segPrecisionTYPE) this->nx);
+    segPrecisionTYPE not_point_five_times_dims_y = (0.5f * (segPrecisionTYPE) this->ny);
+    segPrecisionTYPE not_point_five_times_dims_z = (0.5f * (segPrecisionTYPE) this->nz);
+    segPrecisionTYPE inv_not_point_five_times_dims_x = 1.0f / (0.5f * (segPrecisionTYPE) this->nx);
+    segPrecisionTYPE inv_not_point_five_times_dims_y = 1.0f / (0.5f * (segPrecisionTYPE) this->ny);
+    segPrecisionTYPE inv_not_point_five_times_dims_z = 1.0f / (0.5f * (segPrecisionTYPE) this->nz);
+    int ind = 0;
+
+    for (long multispec = 0; multispec < this->nu; multispec++) {
+
+        BiasCorrected_PTR = static_cast<segPrecisionTYPE *>(Result->data);
+        BiasCorrected_PTR = &BiasCorrected_PTR[multispec * this->numElements];
+        InputImageData = static_cast<segPrecisionTYPE *>(this->InputImage->data);
+        InputImageData = &InputImageData[multispec * this->numElements];
+
+        segPrecisionTYPE *BiasFieldCoefs_multispec = &this->biasFieldCoeficients[multispec * UsedBasisFunctions];
+
+
+        for (long i = 0; i < (long) this->numElements; i++) {
+            BiasCorrected_PTR[i] = 0;
+        }
+
+
+        segPrecisionTYPE to_resize = 0;
+        int index_full = 0;
+        for (int iz = 0; iz < this->nz; iz++) {
+            for (int iy = 0; iy < this->ny; iy++) {
+                for (int ix = 0; ix < this->nx; ix++) {
+                    BiasField = 0.0f;
+                    xpos = (((segPrecisionTYPE) ix - not_point_five_times_dims_x) * inv_not_point_five_times_dims_x);
+                    ypos = (((segPrecisionTYPE) iy - not_point_five_times_dims_y) * inv_not_point_five_times_dims_y);
+                    zpos = (((segPrecisionTYPE) iz - not_point_five_times_dims_z) * inv_not_point_five_times_dims_z);
+
+                    // Get the polynomial basis order
+                    int order = 1;
+                    currxpower[0] = 1;
+                    currypower[0] = 1;
+                    currzpower[0] = 1;
+                    int orderminusone = 0;
+                    int maxorderplusone = this->biasFieldOrder + 1;
+                    while (order < maxorderplusone) {
+                        currxpower[order] = currxpower[orderminusone] * xpos;
+                        currypower[order] = currypower[orderminusone] * ypos;
+                        currzpower[order] = currzpower[orderminusone] * zpos;
+                        order++;
+                        orderminusone++;
+                    }
+
+                    // Estimate the basis
+                    ind = 0;
+                    for (long order = 0; order <= this->biasFieldOrder; order++) {
+                        for (long xorder = 0; xorder <= order; xorder++) {
+                            for (long yorder = 0; yorder <= (order - xorder); yorder++) {
+                                int zorder = order - yorder - xorder;
+                                BiasField -= BiasFieldCoefs_multispec[ind] * currxpower[xorder] * currypower[yorder] *
+                                             currzpower[zorder];
+                                ind++;
+                            }
+                        }
+                    }
+                    BiasField *= brainmask[index_full];
+
+                    to_resize = exp((BiasField + InputImageData[index_full]) * 0.693147181) - 1;
+                    BiasCorrected_PTR[index_full] = (
+                            to_resize * (this->rescale_max[multispec] - this->rescale_min[multispec]) +
+                            this->rescale_min[multispec]);
+                    index_full++;
+                }
+            }
+        }
+    }
+    delete[] brainmask;
+
+    return Result;
+}
+
+
+
+/* \/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/ */
+/// @brief Gets the final outlier segmentation.
+///
+/// Estimates 1 - (the sum of the Outlierness vector over all classes).
+///
+nifti_image *seg_EM_old::GetOutlierness(char *filename) {
+    nifti_image *Result = nifti_copy_nim_info(this->InputImage);
+    Result->dim[0] = 3;
+    Result->dim[4] = 1;
+    Result->dim[5] = 1;
+    Result->datatype = this->InputImage->datatype;
+    Result->cal_max = 1;
+    nifti_set_filenames(Result, filename, 0, 0);
+    nifti_update_dims_from_array(Result);
+    nifti_datatype_sizes(Result->datatype, &Result->nbyper, &Result->swapsize);
+    Result->data = (void *) calloc(Result->nvox, sizeof(segPrecisionTYPE));
+    segPrecisionTYPE *Resultdata = static_cast<segPrecisionTYPE *>(Result->data);
+    for (unsigned int i = 0; i < Result->nvox; i++) {
+        Resultdata[i] = 0;
+    }
+
+
+    for (int i = 0; i < this->numElementsMasked; i++) {
+        segPrecisionTYPE currsum = 0;
+        for (int currclass = 0; currclass < this->numberOfClasses; currclass++) {
+            currsum += this->Outlierness[i + (currclass) * this->numElementsMasked] *
+                       Expec[i + (currclass) * this->numElementsMasked];
+        }
+        Resultdata[S2L[i]] = 1 - currsum;
+    }
+
+    return Result;
+
+}
+
+/* \/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/ */
+/// @brief This is the main function of the seg_EM object. It starts the segmentation process.
+///
+/// This should only be called after all the parameters have been set.
+///
+void seg_EM_old::Run_EM() {
+    time_t start, end;
+    time(&start);
+    if ((int) (this->verbose_level) > (int) (0)) {
+        cout << "EM: Verbose level " << this->verbose_level << endl;
+    }
+    if (!priorsStatus) {
+
+    }
+
+    if (this->CurrSizes == NULL) {
+        CreateCurrSizes();
+    }
+
+    InitializeAndNormalizeImageAndPriors();
+    InitializeAndAllocate();
+    if ((int) (this->verbose_level) > (int) (0)) {
+        cout << "Number of voxels inside the mask = " << this->numElementsMasked << endl;
+    }
+
+    //**************
+    // EM Algorithm
+    //**************
+    this->iter = 0;
+    bool out = true;
+
+    while (out) {
+        if (this->verbose_level > 0) {
+            cout << endl << "*******************************" << endl;
+            cout << "Iteration " << iter << endl;
+        }
+
+        // Iterative Components - EM, MRF, Bias Correction
+
+        //RunMaximization
+        this->RunMaximization();
+        //Expectation
+        this->RunExpectation();
+        //MRF
+        this->RunMRF();
+        //Bias Correction
+        this->RunBiasField();
+        //Update Weight
+        this->RunPriorRelaxation();
+
+        // Print LogLik depending on the verbose level
+        if (this->verbose_level > 0 && this->iter > 0) {
+            if (iter > 0) {
+                if ((this->loglik - this->oldloglik) / fabs(this->oldloglik) > 0 &&
+                    (this->loglik - this->oldloglik) / fabs(this->oldloglik) < 100) {
+                    cout << "Loglik = " << setprecision(7) << this->loglik <<
+                         " : Ratio = " << (this->loglik - this->oldloglik) / fabs(this->oldloglik) << endl;
+                } else {
+                    cout << "Loglik = " << setprecision(7) << this->loglik << endl;
+                }
+            } else {
+                cout << "Initial Loglik = " << setprecision(7) << this->loglik << endl;
+            }
+        }
+        // Preform Exit
+        if ((((this->loglik - this->oldloglik) / (fabs(this->oldloglik + this->loglik) / 2.0f)) <
+             (segPrecisionTYPE) (this->convCrit)
+             && this->iter > this->minIteration)
+            || iter >= this->maxIteration
+            || (std::isinf(this->loglik) && this->iter > 3)) {
+            out = false;
+        }
+        this->ratio = ((this->loglik - this->oldloglik) / fabs(this->oldloglik));
+        // Update LogLik
+        this->oldloglik = this->loglik;
+        iter++;
+    }
+
+    time(&end);
+
+    if (this->verbose_level > 0) {
+        int minutes = (int) floorf(segPrecisionTYPE(end - start) / 60.0f);
+        int seconds = (int) (end - start - 60 * minutes);
+        cout << "Finished in " << minutes << "min " << seconds << "sec" << endl;
+    }
+    return;
+}
+
 
 /* \/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/ */
 void seg_EM_old::RunMaximization() {
@@ -2231,428 +2688,5 @@ void seg_EM_old::RunPriorRelaxation() {
 }
 
 
-
-
-
-
-void seg_EM_old::CreateShort2LongMatrix() {
-    int numel_masked = 0;
-    int numel = this->Mask->nvox;
-    if (this->Mask->datatype == DT_BINARY) {
-        bool *Maskptr = static_cast<bool *> (this->Mask->data);
-        bool *Maskptrtmp = Maskptr;
-        for (int i = 0; i < numel; i++, Maskptrtmp++) {
-            (*Maskptrtmp) ? numel_masked++ : 0;
-        }
-        this->numElementsMasked = numel_masked;
-        CurrSizes->numelmasked=numel_masked;
-
-        this->S2L = new int[numel_masked]();
-        int *Short_2_Long_Indices_PTR = (int *) (this->S2L);
-
-        Maskptrtmp = Maskptr;
-        int tempindex = 0;
-        for (int i = 0; i < numel; i++) {
-            if (*Maskptrtmp) {
-                Short_2_Long_Indices_PTR[tempindex] = i;
-                tempindex++;
-            }
-            Maskptrtmp++;
-        }
-        return;
-    } else {
-        printf("Error:\tCreate_Short_2_Long_Matrix\tWrong Mask datatype\n");
-        this->S2L = NULL;
-        return;
-
-    }
-
-}
-
-void seg_EM_old::CreateLong2ShortMatrix() {
-    int numel = this->Mask->nvox;
-    this->L2S = new int[numel]();
-    if (this->Mask->datatype == DT_BINARY) {
-        bool *Maskptr = static_cast<bool *> (this->Mask->data);
-        bool *Maskptrtmp = Maskptr;
-        int *Long_2_Short_Indices_PTR = (int *) L2S;
-
-        Maskptrtmp = Maskptr;
-        int tempindex = 0;
-        for (int i = 0; i < numel; i++, Maskptrtmp++, Long_2_Short_Indices_PTR++) {
-            if (*Maskptrtmp) {
-                (*Long_2_Short_Indices_PTR) = tempindex;
-                tempindex++;
-            } else {
-                (*Long_2_Short_Indices_PTR) = -1;
-            }
-        }
-        return;
-    } else {
-        cout << "Error:\tCreate_Correspondace_Matrices\tWrong Mask datatype\n" << endl;
-    }
-    return;
-}
-
-
-/* \/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/ */
-
-float *seg_EM_old::GetMeans() {
-    float *OutM = new float[this->nu * this->numberOfClasses];
-    int index = 0;
-    for (int j = 0; j < (this->numberOfClasses); j++) {
-        for (int i = 0; i < (this->nu); i++) {
-            //cout << "M["<<j<<"]="<<this->M[j+i*this->numberOfClasses]<<endl;
-            float resize = exp((this->M[index++]) * 0.693147181) - 1;
-            OutM[j + i * this->numberOfClasses] = (resize * (CurrSizes->rescale_max[i] - CurrSizes->rescale_min[i]) +
-                                                   CurrSizes->rescale_min[i]);
-        }
-    }
-
-    return OutM;
-}
-
-/*
-float * seg_EM_old::GetSTD()
-{
-  float * OutV= new float [this->nu *this->numberOfClasses*this->numberOfClasses];
-  for(int i=0; i<(this->nu); i++){
-      for(int j=0; j<(this->numberOfClasses*this->numberOfClasses); j++){
-          float resize=exp((sqrt(this->V[j+i*this->numberOfClasses*this->numberOfClasses]))*0.693147181)-1;
-          OutV[j+i*this->numberOfClasses*this->numberOfClasses]=(resize*(CurrSizes->rescale_max[i]-CurrSizes->rescale_min[i]));
-          cout << (j+i*this->numberOfClasses*this->numberOfClasses) << " value is : " << OutV[j+i*this->numberOfClasses*this->numberOfClasses] << " resize :"<< resize<< " max:"<<CurrSizes->rescale_max[i]<<" min"<<CurrSizes->rescale_min[i]<<" diff: "<<CurrSizes->rescale_max[i]-CurrSizes->rescale_min[i]<<endl;
-        }
-    }
-  return OutV;
-}
-*/
-
-float *seg_EM_old::GetSTD() {
-    float *OutV = new float[this->nu * this->numberOfClasses * this->numberOfClasses];
-    for (int i = 0; i < (this->numberOfClasses); i++) {
-        for (int j = 0; j < (this->nu * this->nu); j++) {
-            float resize = exp((sqrt(this->V[j + i * this->nu * this->nu])) * 0.693147181) - 1;
-            int x = j / this->nu;//row
-            int y = j - (this->nu * x);//col
-            float rescale_1 = CurrSizes->rescale_max[x] - CurrSizes->rescale_min[x];
-            float rescale_2 = CurrSizes->rescale_max[y] - CurrSizes->rescale_min[y];
-            OutV[j + i * this->nu * this->nu] = (resize * (sqrt(rescale_1 * rescale_2)));
-            //cout << (j+i*this->nu*this->nu) << " value is : " << OutV[j+i*this->nu*this->nu];
-            //cout << " resize :"<< resize<< " x: "<< x;
-            //cout <<" y: "<< y << endl;
-        }
-
-    }
-    return OutV;
-}
-
-/* \/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/ */
-
-nifti_image *seg_EM_old::GetResult() {
-
-
-    nifti_image *Result = nifti_copy_nim_info(this->InputImage);
-    Result->dim[0] = 4;
-    Result->dim[4] = this->numberOfClasses;
-    Result->dim[5] = 1;
-    Result->scl_inter = 0;
-    Result->scl_slope = 1;
-    Result->datatype = this->InputImage->datatype;
-    Result->cal_max = 1;
-    Result->cal_min = 0;
-    nifti_set_filenames(Result, (char *) this->filenameOut.c_str(), 0, 0);
-    nifti_update_dims_from_array(Result);
-    nifti_datatype_sizes(Result->datatype, &Result->nbyper, &Result->swapsize);
-    Result->data = (void *) calloc(Result->nvox, sizeof(segPrecisionTYPE));
-    segPrecisionTYPE *Resultdata = static_cast<segPrecisionTYPE *>(Result->data);
-    // First, zero all the elements of Resultdata
-    for (unsigned int i = 0; i < Result->nvox; i++) {
-        Resultdata[i] = 0;
-    }
-
-    int class_nvox = Result->nx * Result->ny * Result->nz;
-    // Then, for each class
-    for (long currclass = 0; currclass < this->numberOfClasses; currclass++) {
-
-        // Get the vector pointer for the class
-        segPrecisionTYPE *Resultdata_class = &Resultdata[(currclass) * class_nvox];
-        segPrecisionTYPE *Expec_PTR = &Expec[(currclass) * this->numElementsMasked];
-        // Copy the probability from the masked vector Expec_PTR to the full image vector Resultdata_class.
-        // The copying requires using the mapping S2L to go from the masked vector index to the full image index
-        for (long i = 0; i < (long) this->numElementsMasked; i++, Expec_PTR++) {
-            Resultdata_class[this->S2L[i]] = *Expec_PTR;
-        }
-    }
-
-    return Result;
-}
-
-
-/* \/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/ */
-
-nifti_image *seg_EM_old::GetBiasCorrected(char *filename) {
-
-    if (this->biasFieldOrder == 0) {
-        return NULL;
-    }
-    int UsedBasisFunctions = (int) (((float) (this->biasFieldOrder) + 1.0f) * ((float) (this->biasFieldOrder) + 2.0f) /
-                                    2.0f * ((float) (this->biasFieldOrder) + 3.0f) / 3.0f);
-    segPrecisionTYPE *InputImageData = static_cast<segPrecisionTYPE *>(this->InputImage->data);
-
-    nifti_image *Result = nifti_copy_nim_info(this->InputImage);
-    Result->dim[0] = 4;
-    Result->dim[4] = this->nu;
-    Result->datatype = this->InputImage->datatype;
-    Result->cal_max = (this->rescale_max[0]);
-    Result->scl_inter = 0;
-    Result->scl_slope = 1;
-
-    segPrecisionTYPE *brainmask = new segPrecisionTYPE[this->numElements];
-    bool *Maskptrtmp = static_cast<bool *> (this->Mask->data);;
-
-    for (long i = 0; i < (long) this->numElements; i++) {
-        if (InputImageData[i] != InputImageData[i]) {
-            brainmask[i] = 0.0f;
-        } else {
-            brainmask[i] = Maskptrtmp[i];
-        }
-    }
-    Dillate(brainmask, 7, CurrSizes);
-    Erosion(brainmask, 3, CurrSizes);
-    GaussianFilter4D_cArray(brainmask, 3.0f, CurrSizes);
-
-
-    nifti_set_filenames(Result, filename, 0, 0);
-    nifti_update_dims_from_array(Result);
-    nifti_datatype_sizes(Result->datatype, &Result->nbyper, &Result->swapsize);
-    Result->data = (void *) calloc(Result->nvox, sizeof(segPrecisionTYPE));
-    segPrecisionTYPE *BiasCorrected_PTR = static_cast<segPrecisionTYPE *>(Result->data);
-
-    segPrecisionTYPE BiasField = 0;
-    segPrecisionTYPE currxpower[maxAllowedBCPowerOrder] = {0};
-    segPrecisionTYPE currypower[maxAllowedBCPowerOrder] = {0};
-    segPrecisionTYPE currzpower[maxAllowedBCPowerOrder] = {0};
-    segPrecisionTYPE xpos = 0.0f;
-    segPrecisionTYPE ypos = 0.0f;
-    segPrecisionTYPE zpos = 0.0f;
-    segPrecisionTYPE not_point_five_times_dims_x = (0.5f * (segPrecisionTYPE) this->nx);
-    segPrecisionTYPE not_point_five_times_dims_y = (0.5f * (segPrecisionTYPE) this->ny);
-    segPrecisionTYPE not_point_five_times_dims_z = (0.5f * (segPrecisionTYPE) this->nz);
-    segPrecisionTYPE inv_not_point_five_times_dims_x = 1.0f / (0.5f * (segPrecisionTYPE) this->nx);
-    segPrecisionTYPE inv_not_point_five_times_dims_y = 1.0f / (0.5f * (segPrecisionTYPE) this->ny);
-    segPrecisionTYPE inv_not_point_five_times_dims_z = 1.0f / (0.5f * (segPrecisionTYPE) this->nz);
-    int ind = 0;
-
-    for (long multispec = 0; multispec < this->nu; multispec++) {
-
-        BiasCorrected_PTR = static_cast<segPrecisionTYPE *>(Result->data);
-        BiasCorrected_PTR = &BiasCorrected_PTR[multispec * this->numElements];
-        InputImageData = static_cast<segPrecisionTYPE *>(this->InputImage->data);
-        InputImageData = &InputImageData[multispec * this->numElements];
-
-        segPrecisionTYPE *BiasFieldCoefs_multispec = &this->biasFieldCoeficients[multispec * UsedBasisFunctions];
-
-
-        for (long i = 0; i < (long) this->numElements; i++) {
-            BiasCorrected_PTR[i] = 0;
-        }
-
-
-        segPrecisionTYPE to_resize = 0;
-        int index_full = 0;
-        for (int iz = 0; iz < this->nz; iz++) {
-            for (int iy = 0; iy < this->ny; iy++) {
-                for (int ix = 0; ix < this->nx; ix++) {
-                    BiasField = 0.0f;
-                    xpos = (((segPrecisionTYPE) ix - not_point_five_times_dims_x) * inv_not_point_five_times_dims_x);
-                    ypos = (((segPrecisionTYPE) iy - not_point_five_times_dims_y) * inv_not_point_five_times_dims_y);
-                    zpos = (((segPrecisionTYPE) iz - not_point_five_times_dims_z) * inv_not_point_five_times_dims_z);
-
-                    // Get the polynomial basis order
-                    int order = 1;
-                    currxpower[0] = 1;
-                    currypower[0] = 1;
-                    currzpower[0] = 1;
-                    int orderminusone = 0;
-                    int maxorderplusone = this->biasFieldOrder + 1;
-                    while (order < maxorderplusone) {
-                        currxpower[order] = currxpower[orderminusone] * xpos;
-                        currypower[order] = currypower[orderminusone] * ypos;
-                        currzpower[order] = currzpower[orderminusone] * zpos;
-                        order++;
-                        orderminusone++;
-                    }
-
-                    // Estimate the basis
-                    ind = 0;
-                    for (long order = 0; order <= this->biasFieldOrder; order++) {
-                        for (long xorder = 0; xorder <= order; xorder++) {
-                            for (long yorder = 0; yorder <= (order - xorder); yorder++) {
-                                int zorder = order - yorder - xorder;
-                                BiasField -= BiasFieldCoefs_multispec[ind] * currxpower[xorder] * currypower[yorder] *
-                                             currzpower[zorder];
-                                ind++;
-                            }
-                        }
-                    }
-                    BiasField *= brainmask[index_full];
-
-                    to_resize = exp((BiasField + InputImageData[index_full]) * 0.693147181) - 1;
-                    BiasCorrected_PTR[index_full] = (
-                            to_resize * (this->rescale_max[multispec] - this->rescale_min[multispec]) +
-                            this->rescale_min[multispec]);
-                    index_full++;
-                }
-            }
-        }
-    }
-    delete[] brainmask;
-
-    return Result;
-}
-
-/* \/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/ */
-
-nifti_image *seg_EM_old::GetOutlierness(char *filename) {
-    nifti_image *Result = nifti_copy_nim_info(this->InputImage);
-    Result->dim[0] = 3;
-    Result->dim[4] = 1;
-    Result->dim[5] = 1;
-    Result->datatype = DT_FLOAT32;
-    Result->cal_max = 1;
-    nifti_set_filenames(Result, filename, 0, 0);
-    nifti_update_dims_from_array(Result);
-    nifti_datatype_sizes(Result->datatype, &Result->nbyper, &Result->swapsize);
-    Result->data = (void *) calloc(Result->nvox, sizeof(segPrecisionTYPE));
-    segPrecisionTYPE *Resultdata = static_cast<segPrecisionTYPE *>(Result->data);
-    for (unsigned int i = 0; i < Result->nvox; i++) { Resultdata[i] = 0; }
-
-
-    if (this->maskImageStatus) {
-        for (int i = 0; i < CurrSizes->numelmasked; i++) {
-            float currsum = 0;
-            for (int currclass = 0; currclass < CurrSizes->numclass; currclass++) {
-                //currsum+=this->Outlierness[i+(currclass)*CurrSizes->numElementsMasked]*Expec[i+(currclass)*CurrSizes->numElementsMasked];
-                currsum += this->Outlierness[i + (currclass) * CurrSizes->numelmasked] *
-                           this->Expec[i + (currclass) * CurrSizes->numelmasked];
-            }
-            Resultdata[S2L[i]] = 1 - currsum;
-        }
-        //cout << "I m in GetOutlierness with mask code..."<< endl;
-    } else {
-        int class_nvox = Result->nx * Result->ny * Result->nz;
-        for (int i = 0; i < CurrSizes->numel; i++) {
-            float currsum = 0;
-            for (int currclass = 0; currclass < CurrSizes->numclass; currclass++) {
-                currsum += this->Outlierness[i + (currclass) * class_nvox];
-            }
-            Resultdata[i] = 1 - currsum;
-        }
-    }
-
-
-    return Result;
-
-}
-
-/* \/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/ */
-
-
-void seg_EM_old::Run_EM() {
-    time_t start, end;
-    time(&start);
-    if ((int) (this->verbose_level) > (int) (0)) {
-        cout << "EM: Verbose level " << this->verbose_level << endl;
-    }
-    if (!priorsStatus) {
-
-    }
-
-    if (this->CurrSizes == NULL) {
-        CreateCurrSizes();
-    }
-
-    InitializeAndNormalizeImageAndPriors();
-    InitializeAndAllocate();
-    if ((int) (this->verbose_level) > (int) (0)) {
-        cout << "Number of voxels inside the mask = " << this->numElementsMasked << endl;
-    }
-
-    //**************
-    // EM Algorithm
-    //**************
-    this->iter = 0;
-    bool out = true;
-
-    while (out) {
-        if (this->verbose_level > 0) {
-            cout << endl << "*******************************" << endl;
-            cout << "Iteration " << iter << endl;
-        }
-
-        // Iterative Components - EM, MRF, Bias Correction
-
-        //RunMaximization
-        /*
-         * No Difference
-         * */
-        this->RunMaximization();
-        //Expectation
-        /*
-         * Very Small Difference
-         * MAX(ABS(X)): 0.000378907
-         * SUM(ABS(X)): 16.314
-         * SUM(X): 5.35529e-05
-         * */
-        this->RunExpectation();
-        //MRF
-        /*
-         * No Additional Difference
-         * */
-        this->RunMRF();
-        //Bias Correction
-        //MRF
-        /*
-         * No Additional Difference
-         * */
-        this->RunBiasField();
-        //Update Weight
-        this->RunPriorRelaxation();
-
-        // Print LogLik depending on the verbose level
-        if (this->verbose_level > 0 && this->iter > 0) {
-            if (iter > 0) {
-                if ((this->loglik - this->oldloglik) / fabs(this->oldloglik) > 0 &&
-                    (this->loglik - this->oldloglik) / fabs(this->oldloglik) < 100) {
-                    cout << "Loglik = " << setprecision(7) << this->loglik <<
-                         " : Ratio = " << (this->loglik - this->oldloglik) / fabs(this->oldloglik) << endl;
-                } else {
-                    cout << "Loglik = " << setprecision(7) << this->loglik << endl;
-                }
-            } else {
-                cout << "Initial Loglik = " << setprecision(7) << this->loglik << endl;
-            }
-        }
-        // Preform Exit
-        if ((((this->loglik - this->oldloglik) / fabs(this->oldloglik)) < (segPrecisionTYPE) (0.0005) &&
-             this->iter > this->checkpoint_iter) || iter >= this->maxIteration ||
-            (isinf(this->loglik) && this->iter > 3)) {
-            out = false;
-        }
-        this->ratio = ((this->loglik - this->oldloglik) / fabs(this->oldloglik));
-        // Update LogLik
-        this->oldloglik = this->loglik;
-        iter++;
-    }
-
-    time(&end);
-
-    if (this->verbose_level > 0) {
-        int minutes = (int) floorf(float(end - start) / 60.0f);
-        int seconds = (int) (end - start - 60 * minutes);
-        cout << "Finished in " << minutes << "min " << seconds << "sec" << endl;
-    }
-    return;
-}
 
 #endif
