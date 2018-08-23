@@ -1632,8 +1632,10 @@ void seg_EM_old::RunExpectation() {
                                                                     0.01);
                 OutliernessTmpPTR[i + Expec_offset[cl]] = outvalue;
             }
-            Expec[i + Expec_offset[cl]]= IterPrior[i + Expec_offset[cl]] * expf(mahal) * inv_sqrt_V_2pi[cl];
-            SumExpec+= Expec[i + Expec_offset[cl]];
+            ExpectationTmpPTR[i + Expec_offset[cl]] =
+                    IterPrior[i + Expec_offset[cl]] * expf(mahal) * inv_sqrt_V_2pi[cl];
+            // Update the normaliser
+            SumExpec += ExpectationTmpPTR[i + Expec_offset[cl]];
         }
 
         // If something went wrong, just set the expectation to 1/K
