@@ -68,18 +68,18 @@ seg_EM_old::seg_EM_old(int _numb_classes, int _nu,int _nt)
     this->outliernessThreshold=0.0f;
     this->outliernessRatio=0.01f;
 
-    this->BiasField_status=false;
-    this->BiasField_order=0;
+    this->biasFieldStatus=false;
+    this->biasFieldOrder=0;
     this->BiasField=NULL;
-    this->BiasField_coeficients=NULL;
-    this->BiasField_ratio=0;
+    this->biasFieldCoeficients=NULL;
+    this->biasFieldRatio=0;
 
     this->LoAd_phase=-1;
     this->pvModelStatus=false;
     this->SG_deli_status=false;
-    this->Relax_status=false;
-    this->Relax_factor=0;
-    this->RelaxGaussKernelSize=0;
+    this->relaxStatus=false;
+    this->relaxFactor=0;
+    this->relaxGaussKernelSize=0;
     this->mapStatus=0;
     this->MAP_M=NULL;
     this->MAP_V=NULL;
@@ -104,10 +104,10 @@ seg_EM_old::~seg_EM_old()
     }
     this->BiasField=NULL;
 
-    if(this->BiasField_coeficients!=NULL){
-        delete [] this->BiasField_coeficients;
+    if(this->biasFieldCoeficients!=NULL){
+        delete [] this->biasFieldCoeficients;
     }
-    this->BiasField_coeficients=NULL;
+    this->biasFieldCoeficients=NULL;
 
     if(this->Outlierness!=NULL){
         delete [] this->Outlierness;
@@ -318,9 +318,9 @@ int seg_EM_old::Turn_MRF_ON(float strength)
 
 
 int seg_EM_old::Turn_Relaxation_ON(float relax_factor,float relax_gauss_kernel){
-    this->Relax_status=true;
-    this->Relax_factor=relax_factor;
-    this->RelaxGaussKernelSize=relax_gauss_kernel;
+    this->relaxStatus=true;
+    this->relaxFactor=relax_factor;
+    this->relaxGaussKernelSize=relax_gauss_kernel;
     return 1;
 }
 
@@ -328,10 +328,10 @@ int seg_EM_old::Turn_Relaxation_ON(float relax_factor,float relax_gauss_kernel){
 
 int seg_EM_old::Turn_BiasField_ON(int powerOrder,float ratiothresh)
 {
-    this->BiasField_status=true;
-    this->BiasField_order=powerOrder;
-    this->BiasField_coeficients = new segPrecisionTYPE[((powerOrder+1)*(powerOrder+2)/2*(powerOrder+3)/3)*this->nu*this->nt]();
-    this->BiasField_ratio=ratiothresh;
+    this->biasFieldStatus=true;
+    this->biasFieldOrder=powerOrder;
+    this->biasFieldCoeficients = new segPrecisionTYPE[((powerOrder+1)*(powerOrder+2)/2*(powerOrder+3)/3)*this->nu*this->nt]();
+    this->biasFieldRatio=ratiothresh;
     if(this->maskImageStatus){
         this->BiasField = new segPrecisionTYPE[this->numElementsMasked*this->nu*this->nt]();
     }
@@ -1075,53 +1075,866 @@ void seg_EM_old::RunMRF3D()
         }
     }
 }
-
-/* \/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/ */
-
-int seg_EM_old::RunBiasField()
+void seg_EM_old::RunBiasField()
 {
-    if(this->BiasField_status){
-        if((((this->loglik-this->oldloglik)/fabs(this->oldloglik))<(segPrecisionTYPE)(this->BiasField_ratio) && this->iter>3)||((segPrecisionTYPE)(this->BiasField_ratio)==0.0f)){
-            if(this->maskImageStatus){
-                if(this->nz>1){
 
-                    BiasCorrection_mask(this->BiasField,this->BiasField_coeficients,this->InputImage,this->L2S,Expec,this->OutliernessUSE,this->M,this->V,this->BiasField_order,CurrSizes,this->BiasField_status,this->verbose_level);
-                }
-                else{
-                    BiasCorrection_mask2D(this->BiasField,this->BiasField_coeficients,this->InputImage,this->L2S,Expec,this->OutliernessUSE,this->M,this->V,this->BiasField_order,CurrSizes,this->BiasField_status,this->verbose_level);
-                }
-            }
-            else{
-                BiasCorrection(this->BiasField,this->BiasField_coeficients,this->InputImage,Expec,this->OutliernessUSE,this->M,this->V,this->BiasField_order,CurrSizes,this->BiasField_status,this->verbose_level);
-            }
+    if(this->biasFieldStatus && ((((this->loglik-this->oldloglik)/fabs(this->oldloglik))<(this->biasFieldRatio)
+                                  && this->iter>3)||((this->biasFieldRatio)==0.0f)))
+    {
+        if(this->nz>1)
+        {
+            this->RunBiasField3D();
+        }
+        else
+        {
+            this->RunBiasField2D();
         }
     }
-    return 1;
+    return;
 }
 
 
 /* \/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/ */
+/// @brief Optimisation function taking care of the 3D Bias Field
+///
+/// Estimates the 3D MRF energy given the numbe of basis functions. This is similar to this->RunBiasField2D() but in 3D. \sa this->RunBiasField2D()
+///
 
-int seg_EM_old::RunPriorRelaxation()
+void seg_EM_old::RunBiasField3D()
 {
-    if(this->Relax_status){
 
-        if(this->maskImageStatus){
-            if((int)(this->verbose_level)>(int)(0)){
-                cout << "Relaxing Priors"<< endl;
-            }
-            PriorWeight_mask(this->ShortPrior,this->Priors,this->Expec,this->RelaxGaussKernelSize,this->Relax_factor,this->S2L,this->L2S,CurrSizes,this->verbose_level);
+    if(!this->biasFieldStatus)
+    {
+        return;
+    }
+    if(verbose_level>0)
+    {
+        cout << "Optimising the Bias Field with order " << this->biasFieldOrder<< endl;
+        if(this->nu>1)
+        {
+            cout<< "Assuming independent bias-fields between time points" << endl;
         }
-        else{
-            if((int)(this->verbose_level)>(int)(0)){
-                cout << "Relaxing Priors only available on masked images"<< endl;
+        flush(cout);
+    }
+
+    int reduxfactor=reduxFactorForBias;
+    segPrecisionTYPE * sampledData = static_cast<segPrecisionTYPE *>(this->InputImage->data);
+
+    // Get number of basis functions
+    int UsedBasisFunctions=(int)(((float)(this->biasFieldOrder)+1.0f) * ((float)(this->biasFieldOrder)+2.0f)/2.0f *((float)(this->biasFieldOrder)+3.0f)/3.0f);
+    // Precompute Powers depending on the current BiasOrder. The power order to sum to this->biasFieldOrder max.
+    int PowerOrder [(int)((((float)(maxAllowedBCPowerOrder)+1.0f) * ((float)(maxAllowedBCPowerOrder)+2.0f)/2.0f *((float)(maxAllowedBCPowerOrder)+3.0f)/3.0f))*3]= {0};
+    int ind=0;
+    for(int order=0; order<=this->biasFieldOrder; order++)
+    {
+        for(int xorder=0; xorder<=order; xorder++)
+        {
+            for(int yorder=0; yorder<=(order-xorder); yorder++)
+            {
+                int zorder=order-yorder-xorder;
+                PowerOrder[ind] =xorder;
+                PowerOrder[ind+1] =yorder;
+                PowerOrder[ind+2] =zorder;
+                ind += 3;
             }
-            // PriorWeight(this->ShortPrior,this->Priors,this->Expec,CurrSizes,this->verbose_level);
         }
     }
-    return 1;
+    segPrecisionTYPE invV[maxNumbClass];
+    segPrecisionTYPE currM[maxNumbClass];
+    for(long i=0; i<maxNumbClass; i++)
+    {
+        invV[i]=0;
+        currM[i]=0;
+    }
+
+
+    // Solve the problem separetly per modality, as the Bias Field is assumed to be indpendent between modalities.
+    for(long multispec=0; multispec<this->nu; multispec++)
+    {
+
+        // Get pointers to the current modality
+        sampledData = static_cast<segPrecisionTYPE *>(this->InputImage->data);
+        sampledData = &sampledData[multispec*this->numElements];
+        // Precompute the M and V  inverses
+        for(int i=0; i<this->numberOfClasses; i++)
+        {
+            invV[i]=1.0f/(V[i*this->nu*this->nu+multispec+multispec*this->nu]);
+            currM[i]=M[i*this->nu+multispec];
+        }
+
+        //
+        segPrecisionTYPE AWA [(int)((((float)(maxAllowedBCPowerOrder)+1.0f) * ((float)(maxAllowedBCPowerOrder)+2.0f)/2.0f *((float)(maxAllowedBCPowerOrder)+3.0f)/3.0f))*(int)((((float)(maxAllowedBCPowerOrder)+1.0f) * ((float)(maxAllowedBCPowerOrder)+2.0f)/2.0f *((float)(maxAllowedBCPowerOrder)+3.0f)/3.0f))]= {0.0f};
+        segPrecisionTYPE WR [(int)((((float)(maxAllowedBCPowerOrder)+1.0f) * ((float)(maxAllowedBCPowerOrder)+2.0f)/2.0f *((float)(maxAllowedBCPowerOrder)+3.0f)/3.0f))]= {0.0f};
+        segPrecisionTYPE FinalCoefs [(int)((((float)(maxAllowedBCPowerOrder)+1.0f) * ((float)(maxAllowedBCPowerOrder)+2.0f)/2.0f *((float)(maxAllowedBCPowerOrder)+3.0f)/3.0f))]= {0.0f};
+
+
+        // Precompute sizes
+        int col_size = (int)(this->nx);
+        int plane_size = (int)(this->nx)*(this->ny);
+        int maxix = (int)(this->nx);
+        int maxiy = (int)(this->ny);
+        int maxiz = (int)(this->nz);
+        int Dims3d[3]= {0};
+        Dims3d[0]=maxix;
+        Dims3d[1]=maxiy;
+        Dims3d[2]=maxiz;
+
+        // Precompute number of samples as it was never computed
+        int samplecount=0;
+        int linearindexes=0;
+        int currshortindex=0;
+        if(this->numelBias==0)
+        {
+            for (int iz=0; iz<this->nz; iz+=reduxfactor)
+            {
+                for (int iy=0; iy<this->ny; iy+=reduxfactor)
+                {
+                    for (int ix=0; ix<this->nx; ix+=reduxfactor)
+                    {
+                        linearindexes = iz*this->nx*this->ny + iy*this->nx + ix;
+
+                        if(this->L2S[linearindexes]>=0)
+                        {
+                            samplecount++;
+                        }
+                    }
+                }
+            }
+            if(verbose_level>0)
+            {
+                cout << "Number of samples for BiasField = " << samplecount<<", with "<<UsedBasisFunctions<<" basis functions\n";
+                flush(cout);
+            }
+            this->numelBias=samplecount;
+        }
+        else
+        {
+            samplecount=this->numelBias;
+        }
+
+
+
+        // CALC A'WA
+
+        segPrecisionTYPE * W;
+        try
+        {
+            W = new segPrecisionTYPE [samplecount] ();
+        }
+        catch (std::bad_alloc& ba)
+        {
+            std::cerr << "ERROR:Low memory, could not allocate Q (" <<samplecount<<" float elements): "<< ba.what() <<std::endl;
+            seg_exit();
+        }
+
+        segPrecisionTYPE W_tmp=0;
+        currshortindex=0;
+        int Windex=0;
+        // Calc W from the A'WA part of the equations (Van Leemput 1999 eq 7)
+        for (int iz=0; iz<maxiz; iz+=reduxfactor)
+        {
+            for (int iy=0; iy<maxiy; iy+=reduxfactor)
+            {
+                for (int ix=0; ix<maxix; ix+=reduxfactor)
+                {
+                    currshortindex=this->L2S[iz*plane_size+iy*col_size+ix];
+                    if(currshortindex>=0)
+                    {
+                        W_tmp=0;
+                        if(Outlierness==NULL)
+                        {
+                            for(int j=0; j<this->numberOfClasses; j++)
+                            {
+                                W_tmp+=Expec[currshortindex+this->numElementsMasked*j]*invV[j];
+                            }
+                        }
+                        else
+                        {
+                            for(int j=0; j<this->numberOfClasses; j++)
+                            {
+                                W_tmp+=Expec[currshortindex+this->numElementsMasked*j]*Outlierness[currshortindex+this->numElementsMasked*j]*invV[j];
+                            }
+
+                        }
+                        // This is the actual W. Note that W is stored as a vector, as W is a diagonal matrix
+                        W[Windex]=W_tmp;
+                        Windex++;
+                    }
+                }
+            }
+        }
+
+        // Precompute shifts
+        segPrecisionTYPE not_point_five_times_dims_x=(0.5f*(segPrecisionTYPE)Dims3d[0]);
+        segPrecisionTYPE not_point_five_times_dims_y=(0.5f*(segPrecisionTYPE)Dims3d[1]);
+        segPrecisionTYPE not_point_five_times_dims_z=(0.5f*(segPrecisionTYPE)Dims3d[2]);
+        segPrecisionTYPE inv_not_point_five_times_dims_x=1.0f/(0.5f*(segPrecisionTYPE)Dims3d[0]);
+        segPrecisionTYPE inv_not_point_five_times_dims_y=1.0f/(0.5f*(segPrecisionTYPE)Dims3d[1]);
+        segPrecisionTYPE inv_not_point_five_times_dims_z=1.0f/(0.5f*(segPrecisionTYPE)Dims3d[2]);
+
+        segPrecisionTYPE * Basis;
+        try
+        {
+            Basis= new segPrecisionTYPE[UsedBasisFunctions]();
+        }
+        catch (std::bad_alloc& ba)
+        {
+            std::cerr << "ERROR:Low memory, could not allocate Basis (" <<UsedBasisFunctions<<" float elements): "<< ba.what() <<std::endl;
+            seg_exit();
+        }
+
+        segPrecisionTYPE xpos=0.0f;
+        segPrecisionTYPE ypos=0.0f;
+        segPrecisionTYPE zpos=0.0f;
+        int x_bias_index_shift=0;
+        int y_bias_index_shift=1;
+        int z_bias_index_shift=2;
+        segPrecisionTYPE currentW=0.0f;
+        // Calc A'WA (Van Leemput 1999 eq 7)
+        Windex=0;
+        segPrecisionTYPE * Basisptr1= (segPrecisionTYPE *) Basis;
+        segPrecisionTYPE * Basisptr2= (segPrecisionTYPE *) Basis;
+        segPrecisionTYPE * AWAptr= (segPrecisionTYPE *) AWA;
+        for (int iz=0; iz<maxiz; iz+=reduxfactor)
+        {
+            for (int iy=0; iy<maxiy; iy+=reduxfactor)
+            {
+                for (int ix=0; ix<maxix; ix+=reduxfactor)
+                {
+                    linearindexes=(iz)*(this->nx)*(this->ny)+(iy)*(this->nx)+ix;
+                    currshortindex=this->L2S[linearindexes];
+                    if(currshortindex>=0)
+                    {
+                        Basisptr1= (segPrecisionTYPE *) Basis;
+                        currentW=W[Windex];
+                        xpos=(((segPrecisionTYPE)ix-not_point_five_times_dims_x)*inv_not_point_five_times_dims_x);
+                        ypos=(((segPrecisionTYPE)iy-not_point_five_times_dims_y)*inv_not_point_five_times_dims_y);
+                        zpos=(((segPrecisionTYPE)iz-not_point_five_times_dims_z)*inv_not_point_five_times_dims_z);
+                        x_bias_index_shift=0;
+                        y_bias_index_shift=1;
+                        z_bias_index_shift=2;
+                        for(int j2=0; j2<UsedBasisFunctions; j2++,x_bias_index_shift+=3,y_bias_index_shift+=3,z_bias_index_shift+=3, Basisptr1++)
+                        {
+                            // Because Powerorder is always int, use a special power function (faster) to estimate the basis.
+                            *Basisptr1=(pow_int(xpos,PowerOrder[x_bias_index_shift])*pow_int(ypos,PowerOrder[y_bias_index_shift])*pow_int(zpos,PowerOrder[z_bias_index_shift]));
+                        }
+
+
+                        Basisptr1= (segPrecisionTYPE *) Basis;
+                        AWAptr= (segPrecisionTYPE *) AWA;
+                        for(int j2=0; j2<UsedBasisFunctions; j2++, Basisptr1++)
+                        {
+                            Basisptr2= &Basis[j2];
+                            AWAptr= &AWA[j2+j2*UsedBasisFunctions];
+                            for(int i2=j2; i2<UsedBasisFunctions; i2++, AWAptr++, Basisptr2++)
+                            {
+                                // Estimate A'WA, i.e. Basis*W*Basis
+                                (*AWAptr)+=(*Basisptr2)*(currentW)*(*Basisptr1);
+                            }
+                        }
+                        Windex++;
+                    }
+                }
+            }
+        }
+
+        // Transfer from the AWA matrix to an actual matrix structure.
+        seg_Matrix <double> RealAWA(UsedBasisFunctions,UsedBasisFunctions);
+        for(int j2=0; j2<UsedBasisFunctions; j2++)
+        {
+            for(int i2=j2; i2<UsedBasisFunctions; i2++)
+            {
+                RealAWA.setvalue(i2,j2,(double)(AWA[i2+j2*UsedBasisFunctions]));
+                RealAWA.setvalue(j2,i2,(double)(AWA[i2+j2*UsedBasisFunctions]));
+            }
+        }
+
+        // Invert AWA
+        seg_Matrix <double> RealAWA_inv(UsedBasisFunctions);
+        RealAWA_inv.copymatrix(RealAWA);
+        RealAWA_inv.invert();
+
+        // This is only from printing reasons, it does nothing to the vectors
+        if(verbose_level>1)
+        {
+            seg_Matrix <double> RealAWA_test(UsedBasisFunctions);
+            RealAWA_test.settoproduct(RealAWA,RealAWA_inv);
+            RealAWA_test.comparetoidentity();
+        }
+
+
+
+        // CALC MATRIX WR
+
+        //Precompute W (Van Leemput 1999 eq 7)
+        segPrecisionTYPE Wi;
+        segPrecisionTYPE Wij;
+        segPrecisionTYPE Yest;
+        segPrecisionTYPE Ysum;
+        Windex=0;
+        for (int iz=0; iz<maxiz; iz+=reduxfactor)
+        {
+            for (int iy=0; iy<maxiy; iy+=reduxfactor)
+            {
+                for (int ix=0; ix<maxix; ix+=reduxfactor)
+                {
+                    linearindexes=(iz)*(this->nx)*(this->ny)+(iy)*(this->nx)+ix;
+                    currshortindex=this->L2S[linearindexes];
+                    if(currshortindex>=0)
+                    {
+                        Wi=0;
+                        Wij=0;
+                        Yest=0;
+                        Ysum=0;
+                        for(int j=0; j<this->numberOfClasses; j++)
+                        {
+                            segPrecisionTYPE tmpexpec = (segPrecisionTYPE)Expec[currshortindex+this->numElementsMasked*j];
+                            Wij=tmpexpec*(invV[j]);
+                            Wi+=Wij;
+                            Yest+=Wij*(currM[j]);
+                            Ysum+=Wij;
+                        }
+                        W[Windex]=Wi*(sampledData[linearindexes]-(Yest/Ysum));
+                        Windex++;
+                    }
+                }
+            }
+        }
+
+        //Compute WR (Van Leemput 1999 eq 7)
+        for(int bfindex=0; bfindex<UsedBasisFunctions; bfindex++)
+        {
+            int tempvarindex2=0;
+            int linearindexes2=0;
+            segPrecisionTYPE * WRptr=&WR[bfindex];
+            *WRptr=0;
+            for (int iz2=0; iz2<maxiz; iz2+=reduxfactor)
+            {
+                for (int iy2=0; iy2<maxiy; iy2+=reduxfactor)
+                {
+                    for (int ix2=0; ix2<maxix; ix2+=reduxfactor)
+                    {
+                        linearindexes2=(iz2)*(this->nx)*(this->ny)+(iy2)*(this->nx)+ix2;
+                        if(this->L2S[linearindexes2]>=0)
+                        {
+                            *WRptr+=pow_int((((segPrecisionTYPE)ix2-not_point_five_times_dims_x)*inv_not_point_five_times_dims_x),PowerOrder[0+bfindex*3])*
+                                    pow_int((((segPrecisionTYPE)iy2-not_point_five_times_dims_y)*inv_not_point_five_times_dims_y),PowerOrder[1+bfindex*3])*
+                                    pow_int((((segPrecisionTYPE)iz2-not_point_five_times_dims_z)*inv_not_point_five_times_dims_z),PowerOrder[2+bfindex*3])*
+                                    W[tempvarindex2];
+
+
+                            tempvarindex2++;
+                        }
+                    }
+                }
+            }
+            // if nan, set to 1
+            if(*WRptr!=*WRptr)
+            {
+                *WRptr=1;
+            }
+        }
+        // Copy data from WR to the matrix structure
+        seg_Matrix <double> RealWR(UsedBasisFunctions,1);
+
+        for(int i2=0; i2<UsedBasisFunctions; i2++)
+        {
+            RealWR.setvalue(i2,0,(double)(WR[i2]));
+        }
+        // Get coeficients by multiplying RealAWA_inv with RealWR
+        seg_Matrix <double> RealCoefs(UsedBasisFunctions,1);
+        RealCoefs.settoproduct(RealAWA_inv,RealWR);
+        if(verbose_level>1)
+        {
+            cout << "C= " << endl;
+            RealCoefs.dumpmatrix();
+        }
+        double coefValue=0.0f;
+        bool success;
+        for(int i2=0; i2<UsedBasisFunctions; i2++)
+        {
+            RealCoefs.getvalue(i2,0,coefValue,success);
+            FinalCoefs[i2]=(segPrecisionTYPE)(coefValue);
+        }
+
+
+        // Now that we have the Coefs, we can get the actual bias field by multiplying with the Basis functions.
+        for (int iz=0; iz<maxiz; iz++)
+        {
+            segPrecisionTYPE currxpower[maxAllowedBCPowerOrder]={0};
+            segPrecisionTYPE currypower[maxAllowedBCPowerOrder]={0};
+            segPrecisionTYPE currzpower[maxAllowedBCPowerOrder]={0};
+            segPrecisionTYPE tmpbiasfield=0.0f;
+            for (int iy=0; iy<maxiy; iy++)
+            {
+                for (int ix=0; ix<maxix; ix++)
+                {
+                    linearindexes=(iz)*(this->nx)*(this->ny)+(iy)*(this->nx)+ix;
+                    currshortindex=this->L2S[linearindexes];
+                    if(currshortindex>=0)
+                    {
+                        tmpbiasfield=0.0f;
+                        xpos=(((segPrecisionTYPE)ix-not_point_five_times_dims_x)*inv_not_point_five_times_dims_x);
+                        ypos=(((segPrecisionTYPE)iy-not_point_five_times_dims_y)*inv_not_point_five_times_dims_y);
+                        zpos=(((segPrecisionTYPE)iz-not_point_five_times_dims_z)*inv_not_point_five_times_dims_z);
+
+                        // Get the polynomial basis order
+                        int order=1;
+                        currxpower[0]=1;
+                        currypower[0]=1;
+                        currzpower[0]=1;
+                        int orderminusone=0;
+                        int maxorderplusone=this->biasFieldOrder+1;
+                        while (order<maxorderplusone)
+                        {
+                            currxpower[order]=currxpower[orderminusone]*xpos;
+                            currypower[order]=currypower[orderminusone]*ypos;
+                            currzpower[order]=currzpower[orderminusone]*zpos;
+                            order++;
+                            orderminusone++;
+                        }
+                        // Estimate the basis
+                        int ind2=0;
+                        for(int order=0; order<=this->biasFieldOrder; order++)
+                        {
+                            for(int xorder=0; xorder<=order; xorder++)
+                            {
+                                for(int yorder=0; yorder<=(order-xorder); yorder++)
+                                {
+                                    int zorder=order-yorder-xorder;
+                                    tmpbiasfield-=FinalCoefs[ind2]*currxpower[xorder]*currypower[yorder]*currzpower[zorder];
+                                    ind2++;
+                                }
+                            }
+                        }
+                        this->BiasField[currshortindex+multispec*this->numElementsMasked]=tmpbiasfield;
+                    }
+                }
+            }
+        }
+
+        // Save the coeficients back
+        for( int i=0; i<UsedBasisFunctions; i++)
+        {
+            this->biasFieldCoeficients[i+multispec*UsedBasisFunctions]=FinalCoefs[i];
+        }
+
+        if(Basis!=NULL)
+        {
+            delete [] Basis;
+        }
+        if(W!=NULL)
+        {
+            delete [] W;
+        }
+    }
 }
 
+
+/* \/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/ */
+/// @brief Optimisation function taking care of the 2D Bias Field
+///
+/// Estimates the 2D MRF energy given the numbe of basis functions. This is similar to this->RunBiasField3D() but in 2D. \sa this->RunBiasField3D()
+///
+void seg_EM_old::RunBiasField2D()
+{
+    // For more comments on this function, see the RunBiasField3D() function, as it is the same but with only a 2D basis.
+    if(!this->biasFieldStatus)
+    {
+        return;
+    }
+
+    if(this->verbose_level>0)
+    {
+        cout << "Optimising the Bias Field with order " << this->biasFieldOrder<< endl;
+        if(this->nu>1)
+        {
+            cout<< "Assuming fully decoupled bias-fields" << endl;
+        }
+        flush(cout);
+    }
+    int reduxfactor=reduxFactorForBias;
+    long nrOfClasses = this->numberOfClasses;
+    //nrOfClasses = 1;
+    //int nrOfClasses = non_PV_numclass;
+    long TotalLength = this->numElementsMasked;
+    int UsedBasisFunctions=(int)((this->biasFieldOrder+1) * (this->biasFieldOrder+2)/2);
+    segPrecisionTYPE * sampledData = static_cast<segPrecisionTYPE *>(this->InputImage->data);
+
+
+    // Precompute Powers depending on the current BiasOrder
+    int PowerOrder [((maxAllowedBCPowerOrder+1)*(maxAllowedBCPowerOrder+2)/2)]= {0};
+    int ind=0;
+    for(int order=0; order<=this->biasFieldOrder; order++)
+    {
+        for(int xorder=0; xorder<=order; xorder++)
+        {
+            int yorder=order-xorder;
+            PowerOrder[ind] =xorder;
+            PowerOrder[ind+1] =yorder;
+            ind += 2;
+        }
+    }
+    segPrecisionTYPE invV[maxNumbClass];
+    segPrecisionTYPE currM[maxNumbClass];
+    for(long i=0; i<maxNumbClass; i++)
+    {
+        invV[i]=0;
+        currM[i]=0;
+    }
+
+
+    for(long multispec=0; multispec<this->nu; multispec++)
+    {
+        sampledData = static_cast<segPrecisionTYPE *>(this->InputImage->data);
+        sampledData = &sampledData[multispec*this->numElements];
+        // Precompute the M and V  inverses
+        for(long i=0; i<nrOfClasses; i++)
+        {
+            invV[i]=1.0f/(V[i*this->nu*this->nu+multispec+multispec*this->nu]);
+            currM[i]=M[i*this->nu+multispec];
+        }
+        segPrecisionTYPE AWA [((maxAllowedBCPowerOrder+1)*(maxAllowedBCPowerOrder+2))/2*((maxAllowedBCPowerOrder+1)*(maxAllowedBCPowerOrder+2)/2)]= {0.0f};
+        segPrecisionTYPE WR [((maxAllowedBCPowerOrder+1)*(maxAllowedBCPowerOrder+2))/2]= {0.0f};
+        segPrecisionTYPE FinalCoefs [((maxAllowedBCPowerOrder+1)*(maxAllowedBCPowerOrder+2))/2]= {0.0f};
+
+
+        // Precompute sizes
+        int col_size = (int)(this->nx);
+        int maxix = (int)(this->nx);
+        int maxiy = (int)(this->ny);
+        int Dims3d[2]= {0};
+        Dims3d[0]=maxix;
+        Dims3d[1]=maxiy;
+
+        // Precompute number of samples as it was never computed
+        int samplecount=0;
+        int linearindexes=0;
+        int currshortindex=0;
+        if(this->numelBias==0)
+        {
+            for (int iy=0; iy<maxiy; iy+=reduxfactor)
+            {
+                for (int ix=0; ix<maxix; ix+=reduxfactor)
+                {
+                    linearindexes=iy*col_size+ix;
+                    if(this->L2S[linearindexes]>=0)
+                    {
+                        samplecount++;
+                    }
+                }
+            }
+            if(verbose_level>0)
+            {
+                cout << "Number of samples for BiasField = " << samplecount<<"\n";
+                flush(cout);
+            }
+            this->numelBias=samplecount;
+        }
+        else
+        {
+            samplecount=this->numelBias;
+        }
+
+
+
+        // CALC MATRIX A
+
+        // Calc W (Van Leemput 1999 eq 7)
+        segPrecisionTYPE * Tempvar= new segPrecisionTYPE [samplecount] ();
+        segPrecisionTYPE Tempvar_tmp=0;
+        currshortindex=0;
+        int tempvarindex=0;
+        for (int iy=0; iy<maxiy; iy+=reduxfactor)
+        {
+            for (int ix=0; ix<maxix; ix+=reduxfactor)
+            {
+                currshortindex=this->L2S[iy*col_size+ix];
+                if(currshortindex>=0)
+                {
+                    Tempvar_tmp=0;
+                    for(long j=0; j<nrOfClasses; j++)
+                    {
+                        Tempvar_tmp+=Expec[currshortindex+TotalLength*j]*invV[j];
+                    }
+                    Tempvar[tempvarindex]=Tempvar_tmp;
+                    tempvarindex++;
+                }
+            }
+        }
+        // Precompute shifts
+        segPrecisionTYPE not_point_five_times_dims_x=(0.5f*(segPrecisionTYPE)Dims3d[0]);
+        segPrecisionTYPE not_point_five_times_dims_y=(0.5f*(segPrecisionTYPE)Dims3d[1]);
+
+        segPrecisionTYPE inv_not_point_five_times_dims_x=1.0f/(0.5f*(segPrecisionTYPE)Dims3d[0]);
+        segPrecisionTYPE inv_not_point_five_times_dims_y=1.0f/(0.5f*(segPrecisionTYPE)Dims3d[1]);
+
+
+        segPrecisionTYPE * Basis= new segPrecisionTYPE[UsedBasisFunctions]();
+        segPrecisionTYPE xpos=0.0f;
+        segPrecisionTYPE ypos=0.0f;
+        int x_bias_index_shift=0;
+        int y_bias_index_shift=1;
+        segPrecisionTYPE current_Tempvar=0.0f;
+        // Calc A'WA (Van Leemput 1999 eq 7)
+        tempvarindex=0;
+        segPrecisionTYPE * Basisptr1= (segPrecisionTYPE *) Basis;
+        segPrecisionTYPE * Basisptr2= (segPrecisionTYPE *) Basis;
+        segPrecisionTYPE * AWAptr= (segPrecisionTYPE *) AWA;
+        for (int iy=0; iy<maxiy; iy+=reduxfactor)
+        {
+            for (int ix=0; ix<maxix; ix+=reduxfactor)
+            {
+                linearindexes=(iy)*(this->nx)+ix;
+                currshortindex=this->L2S[linearindexes];
+                if(currshortindex>=0)
+                {
+                    Basisptr1= (segPrecisionTYPE *) Basis;
+                    current_Tempvar=Tempvar[tempvarindex];
+                    xpos=(((segPrecisionTYPE)ix-not_point_five_times_dims_x)*inv_not_point_five_times_dims_x);
+                    ypos=(((segPrecisionTYPE)iy-not_point_five_times_dims_y)*inv_not_point_five_times_dims_y);
+                    x_bias_index_shift=0;
+                    y_bias_index_shift=1;
+                    for(int j2=0; j2<UsedBasisFunctions; j2++,x_bias_index_shift+=2,y_bias_index_shift+=2, Basisptr1++)
+                    {
+                        // Because Powerorder is always int, use a special power function (faster)
+                        *Basisptr1=(pow_int(xpos,PowerOrder[x_bias_index_shift])*pow_int(ypos,PowerOrder[y_bias_index_shift]));
+                    }
+                    Basisptr1= (segPrecisionTYPE *) Basis;
+                    AWAptr= (segPrecisionTYPE *) AWA;
+                    for(int j2=0; j2<UsedBasisFunctions; j2++, Basisptr1++)
+                    {
+                        Basisptr2= &Basis[j2];
+                        AWAptr= &AWA[j2+j2*UsedBasisFunctions];
+                        for(int i2=j2; i2<UsedBasisFunctions; i2++, AWAptr++, Basisptr2++)
+                        {
+                            (*AWAptr)+=(*Basisptr2)*(current_Tempvar)*(*Basisptr1);
+                        }
+                    }
+                    tempvarindex++;
+                }
+            }
+        }
+
+        seg_Matrix <double> RealAWA(UsedBasisFunctions,UsedBasisFunctions);
+
+        for(int j2=0; j2<UsedBasisFunctions; j2++)
+        {
+            for(int i2=j2; i2<UsedBasisFunctions; i2++)
+            {
+                RealAWA.setvalue(i2,j2,(double)(AWA[i2+j2*UsedBasisFunctions]));
+                RealAWA.setvalue(j2,i2,(double)(AWA[i2+j2*UsedBasisFunctions]));
+            }
+        }
+
+        seg_Matrix <double> RealAWA_inv(UsedBasisFunctions);
+        RealAWA_inv.copymatrix(RealAWA);
+        RealAWA_inv.invert();
+
+        if(verbose_level>1)
+        {
+            seg_Matrix <double> RealAWA_test(UsedBasisFunctions);
+            RealAWA_test.settoproduct(RealAWA,RealAWA_inv);
+            RealAWA_test.comparetoidentity();
+            //RealA.dumpmatrix();
+        }
+
+
+
+        // CALC MATRIX B
+
+        //Precompute WR (Van Leemput 1999 eq 7)
+        segPrecisionTYPE Wi;
+        segPrecisionTYPE Wij;
+        segPrecisionTYPE Yest;
+        segPrecisionTYPE Ysum;
+        tempvarindex=0;
+        for (int iy=0; iy<maxiy; iy+=reduxfactor)
+        {
+            for (int ix=0; ix<maxix; ix+=reduxfactor)
+            {
+                linearindexes=(iy)*(this->nx)+ix;
+                currshortindex=this->L2S[linearindexes];
+                if(currshortindex>=0)
+                {
+                    Wi=0;
+                    Wij=0;
+                    Yest=0;
+                    Ysum=0;
+                    for(long j=0; j<nrOfClasses; j++)
+                    {
+                        segPrecisionTYPE tmpexpec = (segPrecisionTYPE)this->Expec[currshortindex+TotalLength*j];
+                        Wij=tmpexpec*(invV[j]);
+                        Wi+=Wij;
+                        Yest+=Wij*(currM[j]);
+                        Ysum+=Wij;
+                    }
+                    Tempvar[tempvarindex]=Wi*(sampledData[linearindexes]-(Yest/Ysum));
+                    tempvarindex++;
+                }
+            }
+        }
+
+        for(int i2=0; i2<UsedBasisFunctions; i2++)
+        {
+            tempvarindex=0;
+            WR[i2]=0;
+            for (int iy=0; iy<maxiy; iy+=reduxfactor)
+            {
+
+                for (int ix=0; ix<maxix; ix+=reduxfactor)
+                {
+                    linearindexes=(iy)*(this->nx)+ix;
+                    currshortindex=this->L2S[linearindexes];
+                    if(currshortindex>=0)
+                    {
+                        WR[i2]+=pow_int((((segPrecisionTYPE)ix-not_point_five_times_dims_x)*inv_not_point_five_times_dims_x),PowerOrder[0+i2*2])*
+                                pow_int((((segPrecisionTYPE)iy-not_point_five_times_dims_y)*inv_not_point_five_times_dims_y),PowerOrder[1+i2*2])*
+                                Tempvar[tempvarindex];
+
+                        if(WR[i2]!=WR[i2])
+                        {
+                            WR[i2]=1;
+                        }
+                        tempvarindex++;
+                    }
+                }
+            }
+        }
+
+        seg_Matrix <double> RealWR(UsedBasisFunctions,1);
+
+        for(int i2=0; i2<UsedBasisFunctions; i2++)
+        {
+            RealWR.setvalue(i2,0,(double)(WR[i2]));
+        }
+
+        seg_Matrix <double> RealFinalCoefs(UsedBasisFunctions,1);
+
+        RealFinalCoefs.settoproduct(RealAWA_inv,RealWR);
+        if(verbose_level>1)
+        {
+            cout << "C= " << endl;
+            RealFinalCoefs.dumpmatrix();
+        }
+
+        double cvalue=0.0f;
+        bool success;
+        for(int i2=0; i2<UsedBasisFunctions; i2++)
+        {
+            RealFinalCoefs.getvalue(i2,0,cvalue,success);
+            FinalCoefs[i2]=(segPrecisionTYPE)(cvalue);
+        }
+
+        segPrecisionTYPE currxpower[maxAllowedBCPowerOrder]={0};
+        segPrecisionTYPE currypower[maxAllowedBCPowerOrder]={0};
+        segPrecisionTYPE tmpbiasfield=0.0f;
+        for (int iy=0; iy<maxiy; iy++)
+        {
+            for (int ix=0; ix<maxix; ix++)
+            {
+                linearindexes=(iy)*(this->nx)+ix;
+                currshortindex=this->L2S[linearindexes];
+                if(currshortindex>=0)
+                {
+                    tmpbiasfield=0.0f;
+                    xpos=(((segPrecisionTYPE)ix-not_point_five_times_dims_x)*inv_not_point_five_times_dims_x);
+                    ypos=(((segPrecisionTYPE)iy-not_point_five_times_dims_y)*inv_not_point_five_times_dims_y);
+
+                    // Get the polynomial order power
+                    int order=1;
+                    currxpower[0]=1;
+                    currypower[0]=1;
+                    int orderminusone=0;
+                    int maxorderplusone=this->biasFieldOrder+1;
+                    while (order<maxorderplusone)
+                    {
+                        currxpower[order]=currxpower[orderminusone]*xpos;
+                        currypower[order]=currypower[orderminusone]*ypos;
+                        order++;
+                        orderminusone++;
+                    }
+
+                    ind=0;
+                    for(int order=0; order<=this->biasFieldOrder; order++)
+                    {
+                        for(int xorder=0; xorder<=order; xorder++)
+                        {
+                            int yorder=order-xorder;
+                            tmpbiasfield-=FinalCoefs[ind]*currxpower[xorder]*currypower[yorder];
+                            ind++;
+                        }
+                    }
+                    this->BiasField[currshortindex+multispec*this->numElementsMasked]=tmpbiasfield;
+                }
+            }
+
+        }
+
+        for( int i=0; i<UsedBasisFunctions; i++)
+        {
+            this->biasFieldCoeficients[i+multispec*UsedBasisFunctions]=FinalCoefs[i];
+        }
+        delete [] Basis;
+        delete [] Tempvar;
+    }
+}
+
+
+
+/* \/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/ */
+
+void seg_EM_old::RunPriorRelaxation()
+{
+    if(this->relaxStatus)
+    {
+        if((int)(this->verbose_level)>(int)(0))
+        {
+            cout << "Relaxing Priors"<< endl;
+        }
+
+        // Copy expectation to the this->ShortPrior and convolve with a gaussian filter
+        for(long i=0; i<(this->numberOfClasses*this->numElementsMasked); i++)
+        {
+            this->ShortPrior[i]=Expec[i];
+        }
+
+        int oldTSize=this->CurrSizes->tsize;
+        this->CurrSizes->tsize=this->CurrSizes->numclass;
+        Gaussian_Filter_Short_4D_old(ShortPrior, S2L, L2S, relaxGaussKernelSize, CurrSizes, CSFclass);
+        GaussianFilter4D_cArray(this->ShortPrior,this->S2L,this->L2S,this->relaxGaussKernelSize,this->CurrSizes);
+        this->CurrSizes->tsize=oldTSize;
+
+        // Estimate the new priors, i.e. (1-alpha)(Gaussian(Expec)) + (alpha)(Prior)
+        segPrecisionTYPE * PriorsPtr = NULL;
+        if (this->Priors != NULL)
+        {
+            PriorsPtr = static_cast<segPrecisionTYPE *>(this->Priors->data);
+        }
+        long currindex=0;
+        for(long k=0; k<this->numberOfClasses; k++)
+        {
+            currindex=k*this->numElementsMasked;
+            for(long i=0; i<(this->numElementsMasked); i++, currindex++)
+            {
+                // gets (1-alpha)(Gaussian(Expec))
+                this->ShortPrior[currindex]*=(1-this->relaxFactor);
+                // gets  (alpha)(Prior)
+                if (PriorsPtr != NULL)
+                {
+                    this->ShortPrior[currindex]+=(this->relaxFactor)*PriorsPtr[S2L[i]+k*this->numElements];
+                }
+                else
+                {
+                    this->ShortPrior[currindex]+=(this->relaxFactor)*1/this->numberOfClasses;
+                }
+
+
+            }
+        }
+    }
+    return;
+}
 
 /* \/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/ */
 
@@ -1442,7 +2255,7 @@ nifti_image * seg_EM_old::GetBiasCorrected(char * filename)
     nifti_image * Result=NULL;
 
     if(this->maskImageStatus){
-        Result = Get_Bias_Corrected_mask(this->BiasField_coeficients,this->InputImage,filename,this->CurrSizes,this->BiasField_order);
+        Result = Get_Bias_Corrected_mask(this->biasFieldCoeficients,this->InputImage,filename,this->CurrSizes,this->biasFieldOrder);
     }
     else{
         Result = Get_Bias_Corrected(this->BiasField,this->InputImage,filename,this->CurrSizes);
@@ -1555,6 +2368,10 @@ int *  seg_EM_old::Run_EM()
          * */
         this->RunMRF();
         //Bias Correction
+        //MRF
+        /*
+         * No Additional Difference
+         * */
         this->RunBiasField();
         //Update Weight
         this->RunPriorRelaxation();

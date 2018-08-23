@@ -69,20 +69,20 @@ protected:
     float outliernessRatio;
 
     // BiasField Specific
-    bool    BiasField_status;
-    int     BiasField_order;
+    bool    biasFieldStatus;
+    int     biasFieldOrder;
     float*  BiasField;
-    float*  BiasField_coeficients;
-    float   BiasField_ratio;
-    int     numelbias;
+    float*  biasFieldCoeficients;
+    float   biasFieldRatio;
+    int     numelBias;
 
     // LoAd Specific
     int LoAd_phase;
     bool pvModelStatus;
     bool SG_deli_status;
-    bool Relax_status;
-    float  Relax_factor;
-    float RelaxGaussKernelSize;
+    bool relaxStatus;
+    float  relaxFactor;
+    float relaxGaussKernelSize;
     bool mapStatus;
     float* MAP_M;
     float* MAP_V;
@@ -96,8 +96,10 @@ protected:
     void RunMRF();
     void RunMRF3D();
     void RunMRF2D();
-    int RunPriorRelaxation();
-    int RunBiasField();
+    void RunPriorRelaxation();
+    void RunBiasField();
+    void RunBiasField3D();
+    void RunBiasField2D();
     int UpdateOutlierness();
     int InitializeAndNormalizeImageAndPriors();
     void InitializeAndAllocate();

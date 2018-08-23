@@ -9,22 +9,12 @@ segPrecisionTYPE * Create_cArray_from_Prior(nifti_image * Priors,
                                             long numclass,
                                             bool PV_ON);
 
-int PriorWeight_mask(float * ShortPrior,
-                     nifti_image * Priors,
-                     float * Expec,
-                     float GaussKernelSize,
-                     float RelaxFactor,
-                     int * S2L,
-                     int * L2S,
-                     ImageSize * CurrSizes,
-                     int verbose_level);
-
-int Gaussian_Filter_Short_4D(segPrecisionTYPE * ShortData,
-                             int * S2L,
-                             int * L2S,
-                             segPrecisionTYPE gauss_std,
-                             ImageSize * CurrSizes,
-                             int class_with_CSF);
+void Gaussian_Filter_Short_4D_old(segPrecisionTYPE *ShortData,
+                                 int *S2L,
+                                 int *L2S,
+                                 segPrecisionTYPE gauss_std,
+                                 ImageSize *CurrSizes,
+                                 int class_with_CSF);
 
 
 int Normalize_NaN_Priors_mask(nifti_image * Priors,
