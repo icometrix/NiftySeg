@@ -1588,35 +1588,39 @@ void seg_EM_old::RunExpectation() {
     segPrecisionTYPE logliktmp = 0.0f;
 
 
+    segPrecisionTYPE *ExpectationTmpPTR = (segPrecisionTYPE *) this->Expec;
+    segPrecisionTYPE *OutliernessTmpPTR = (segPrecisionTYPE *) this->Outlierness;
+    segPrecisionTYPE *InputImageTmpPtr = static_cast<segPrecisionTYPE *>(this->InputImage->data);
+    segPrecisionTYPE *BiasFieldTmpPTR = (segPrecisionTYPE *) this->BiasField;
+
 #ifdef _OPENMP
                                                                                                                             segPrecisionTYPE * loglikthread = new segPrecisionTYPE [omp_get_max_threads()]();
     for(long i=0; i<(long)omp_get_max_threads(); i++)
         loglikthread[i]=0;
 
-#pragma omp parallel for shared(Expec,loglikthread,T1,BiasField,Outlierness,IterPrior)
+#pragma omp parallel for shared(ExpectationTmpPTR,loglikthread,InputImageTmpPtr,BiasFieldTmpPTR,OutliernessTmpPTR,IterPrior)
 #endif
-    for (int i=0; i<numel_masked;i++) {
-        segPrecisionTYPE * T1_PTR = static_cast<segPrecisionTYPE *>(InputImage->data);
+    // Now that we have the Gaussian normaliser and the inverted determinant of the covariance, estimate the Gaussian PDF. We do that independently per voxel.
+    for (int i = 0; i < numel_masked; i++) {
+        segPrecisionTYPE *T1_PTR = (segPrecisionTYPE *) (InputImageTmpPtr);
         segPrecisionTYPE T1_Bias_corr[maxMultispectalSize];
-        segPrecisionTYPE SumExpec=0.0f;
+        segPrecisionTYPE SumExpec = 0.0f;
 
-        for(long Multispec=0; Multispec < CurrSizes->usize; Multispec++)
-            T1_Bias_corr[Multispec]= (BiasField != NULL) ? (T1_PTR[S2L[i] + Multispec * CurrSizes->numel] + BiasField[i + Multispec * numel_masked]) : (T1_PTR[
-                    S2L[i] + Multispec * CurrSizes->numel]);
+        // For each modality, estimate the bias field corrected intensity first
+        for (long Multispec = 0; Multispec < this->nu; Multispec++)
+            T1_Bias_corr[Multispec] = (BiasFieldTmpPTR != NULL) ? (
+                    T1_PTR[this->S2L[i] + Multispec * this->numElements] +
+                    BiasFieldTmpPTR[i + Multispec * numel_masked]) : (T1_PTR[this->S2L[i] +
+                                                                             Multispec * this->numElements]);
 
-
-
-        //Expec_offset_PTR=Expec_offset;
-
-        for (int cl=0; cl<num_class; cl++) {
-            segPrecisionTYPE mahal=0.0f;
-            for(long Multispec=0; Multispec < CurrSizes->usize; Multispec++) {
-                segPrecisionTYPE tmpT1_BC_minusM=(T1_Bias_corr[Multispec] - M[cl * (CurrSizes->usize) + Multispec]);
-                for(long Multispec2=0; Multispec2 < CurrSizes->usize; Multispec2++) {
-                    mahal-= (0.5f) * (T1_Bias_corr[Multispec2] - M[cl * (CurrSizes->usize) + Multispec2]) * inv_v[cl *
-                                                                                                                  CurrSizes->usize *
-                                                                                                                  CurrSizes->usize + Multispec + Multispec2 *
-                                                                                                                                                 CurrSizes->usize] * tmpT1_BC_minusM;
+        // Then, for each class and for each modality, iterate over all modalities and subtract their (Y-\Mu)/inv(|\Sigma|) in order to get the Mahalanobis distance.
+        for (int cl = 0; cl < num_class; cl++) {
+            segPrecisionTYPE mahal = 0.0f;
+            for (long Multispec = 0; Multispec < this->nu; Multispec++) {
+                segPrecisionTYPE tmpT1_BC_minusM = (T1_Bias_corr[Multispec] - this->M[cl * (this->nu) + Multispec]);
+                for (long Multispec2 = 0; Multispec2 < this->nu; Multispec2++) {
+                    mahal -= (0.5f) * (T1_Bias_corr[Multispec2] - M[cl * (this->nu) + Multispec2]) *
+                             inv_v[cl * this->nu * this->nu + Multispec + Multispec2 * this->nu] * tmpT1_BC_minusM;
                 }
             }
 
@@ -1635,27 +1639,30 @@ void seg_EM_old::RunExpectation() {
             }
 
         }
-        else{
+            // If it worked, then normalise the expectations, thus obtaining a per voxel responsability
+        else {
 
-            for (int cl=0; cl<num_class; cl++) {
-                Expec[i + Expec_offset[cl]]= Expec[i + Expec_offset[cl]] / SumExpec;
+            for (int cl = 0; cl < num_class; cl++) {
+                ExpectationTmpPTR[i + Expec_offset[cl]] = ExpectationTmpPTR[i + Expec_offset[cl]] / SumExpec;
             }
 #ifdef _OPENMP
             loglikthread[omp_get_thread_num()]+=logf(SumExpec);
 #else
-            logliktmp+=logf(SumExpec);
+            logliktmp += logf(SumExpec);
 #endif
-
         }
     }
 
 #ifdef _OPENMP
-    for(long i =0; i<(long)omp_get_max_threads(); i++)
+                                                                                                                            for(long i =0; i<(long)omp_get_max_threads(); i++)
         logliktmp+=loglikthread[i];
 #endif
 
-    (&loglik)[0]=logliktmp;;
+    // update the log likelihood
+    loglik = logliktmp;
+
     return;
+
 }
 
 
