@@ -210,18 +210,5 @@ public:
     nifti_image* GetBiasCorrected(char * filename);
     nifti_image* GetOutlierness(char * filename);
 
-    void calcE_mask(nifti_image * T1,
-                   segPrecisionTYPE * IterPrior,
-                   segPrecisionTYPE * Expec,
-                   double * loglik,
-                   segPrecisionTYPE * BiasField,
-                   segPrecisionTYPE * Outlierness,
-                   segPrecisionTYPE OutliernessThreshold,
-                   int * S2L,
-                   segPrecisionTYPE * M,
-                   segPrecisionTYPE * V,
-                   ImageSize * CurrSizes,
-                   int verbose);
-
 };
 

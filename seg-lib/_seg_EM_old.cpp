@@ -1522,7 +1522,139 @@ void seg_EM_old::RunExpectation() {
         IterPrior = this->ShortPrior;
     }
 
-    calcE_mask(this->InputImage,IterPrior,this->Expec,&this->loglik,this->BiasField,this->OutliernessUSE,this->outliernessThreshold,this->S2L,this->M,this->V,CurrSizes,this->verbose_level);
+    int numel_masked = this->numElementsMasked;
+    int num_class = this->numberOfClasses;
+    bool OutliernessFlag = (this->OutliernessUSE == NULL) ? 0 : 1;
+    segPrecisionTYPE inv_v[maxNumbClass * maxMultispectalSize * maxMultispectalSize] = {0.0f};
+    segPrecisionTYPE inv_sqrt_V_2pi[maxNumbClass] = {0.0f};
+
+    int Expec_offset[maxNumbClass] = {0};
+
+    // for each class, do
+    for (int cl = 0; cl < num_class; cl++) {
+        Expec_offset[cl] = (int) cl * numel_masked;
+        // if multimodal, do
+        if (this->nu > 1) {
+            seg_Matrix<double> Vmat(this->nu, this->nu);
+            for (long j2 = 0; j2 < this->nu; j2++) {
+                for (long i2 = j2; i2 < this->nu; i2++) {
+                    Vmat.setvalue(i2, j2, (double) (this->V[i2 + j2 * this->nu + cl * this->nu * this->nu]));
+                    Vmat.setvalue(j2, i2, (double) (this->V[i2 + j2 * this->nu + cl * this->nu * this->nu]));
+                }
+            }
+            // Get the Gaussian normaliser
+            inv_sqrt_V_2pi[cl] = 1 / (sqrtf(2 * M_PI * Vmat.determinant()));
+            if (this->verbose_level > 1) {
+                cout << endl << "inv_sqrt_V_2pi[" << cl << "]= " << inv_sqrt_V_2pi[cl] << endl;
+                flush(cout);
+            }
+            // Get the inverted covariance matrix
+            Vmat.invert();
+            double covarianceValue = 0.0f;
+            bool success;
+            // Print if in debug, i.e. verbose_level==2
+            if (this->verbose_level > 1) {
+                cout << "inv_V[" << cl << "]= ";
+                flush(cout);
+            }
+            for (long j2 = 0; j2 < this->nu; j2++) {
+                if (this->verbose_level > 1) {
+                    if (j2 != 0) {
+                        cout << endl << "          ";
+                    }
+                }
+                for (long i2 = 0; i2 < this->nu; i2++) {
+                    // copy data from Vmat to inv_v
+                    Vmat.getvalue(i2, j2, covarianceValue, success);
+                    inv_v[i2 + j2 * this->nu + cl * this->nu * this->nu] = (segPrecisionTYPE) (covarianceValue);
+                    if (this->verbose_level > 1) {
+                        cout << inv_v[i2 + j2 * this->nu + cl * this->nu * this->nu] << "\t";
+                        flush(cout);
+                    }
+                }
+
+            }
+            if (this->verbose_level > 1) {
+                cout << endl;
+            }
+        }
+            // else, just get the gaussian normaliser and the inverse covariance determinant
+        else {
+            inv_sqrt_V_2pi[cl] = 1 / (sqrtf(2 * M_PI * V[cl]));
+            inv_v[cl] = 1 / V[cl];
+        }
+    }
+    this->loglik = 0;
+    segPrecisionTYPE logliktmp = 0.0f;
+
+
+#ifdef _OPENMP
+                                                                                                                            segPrecisionTYPE * loglikthread = new segPrecisionTYPE [omp_get_max_threads()]();
+    for(long i=0; i<(long)omp_get_max_threads(); i++)
+        loglikthread[i]=0;
+
+#pragma omp parallel for shared(Expec,loglikthread,T1,BiasField,Outlierness,IterPrior)
+#endif
+    for (int i=0; i<numel_masked;i++) {
+        segPrecisionTYPE * T1_PTR = static_cast<segPrecisionTYPE *>(InputImage->data);
+        segPrecisionTYPE T1_Bias_corr[maxMultispectalSize];
+        segPrecisionTYPE SumExpec=0.0f;
+
+        for(long Multispec=0; Multispec < CurrSizes->usize; Multispec++)
+            T1_Bias_corr[Multispec]= (BiasField != NULL) ? (T1_PTR[S2L[i] + Multispec * CurrSizes->numel] + BiasField[i + Multispec * numel_masked]) : (T1_PTR[
+                    S2L[i] + Multispec * CurrSizes->numel]);
+
+
+
+        //Expec_offset_PTR=Expec_offset;
+
+        for (int cl=0; cl<num_class; cl++) {
+            segPrecisionTYPE mahal=0.0f;
+            for(long Multispec=0; Multispec < CurrSizes->usize; Multispec++) {
+                segPrecisionTYPE tmpT1_BC_minusM=(T1_Bias_corr[Multispec] - M[cl * (CurrSizes->usize) + Multispec]);
+                for(long Multispec2=0; Multispec2 < CurrSizes->usize; Multispec2++) {
+                    mahal-= (0.5f) * (T1_Bias_corr[Multispec2] - M[cl * (CurrSizes->usize) + Multispec2]) * inv_v[cl *
+                                                                                                                  CurrSizes->usize *
+                                                                                                                  CurrSizes->usize + Multispec + Multispec2 *
+                                                                                                                                                 CurrSizes->usize] * tmpT1_BC_minusM;
+                }
+            }
+
+            if(OutliernessFlag){
+                float outvalue=(expf(mahal)+0.01)/(expf(mahal) + expf(-0.5*(outliernessThreshold *
+                                                                            outliernessThreshold)) + 0.01);
+                OutliernessUSE[i + Expec_offset[cl]]=outvalue;
+            }
+            Expec[i + Expec_offset[cl]]= IterPrior[i + Expec_offset[cl]] * expf(mahal) * inv_sqrt_V_2pi[cl];
+            SumExpec+= Expec[i + Expec_offset[cl]];
+        }
+
+        if (SumExpec<=0.0 || SumExpec!=SumExpec){
+            for (int cl=0; cl<num_class; cl++) {
+                Expec[i + Expec_offset[cl]]= (float)(1) / (float)(num_class);
+            }
+
+        }
+        else{
+
+            for (int cl=0; cl<num_class; cl++) {
+                Expec[i + Expec_offset[cl]]= Expec[i + Expec_offset[cl]] / SumExpec;
+            }
+#ifdef _OPENMP
+            loglikthread[omp_get_thread_num()]+=logf(SumExpec);
+#else
+            logliktmp+=logf(SumExpec);
+#endif
+
+        }
+    }
+
+#ifdef _OPENMP
+    for(long i =0; i<(long)omp_get_max_threads(); i++)
+        logliktmp+=loglikthread[i];
+#endif
+
+    (&loglik)[0]=logliktmp;;
     return;
 }
 
@@ -2559,147 +2691,6 @@ void seg_EM_old::RunPriorRelaxation() {
             }
         }
     }
-    return;
-}
-
-void seg_EM_old::calcE_mask(nifti_image * T1,
-               segPrecisionTYPE * IterPrior,
-               segPrecisionTYPE * Expec,
-               double * loglik,
-               segPrecisionTYPE * BiasField,
-               segPrecisionTYPE * Outlierness,
-               segPrecisionTYPE OutliernessThreshold,
-               int * S2L,
-               segPrecisionTYPE * M,
-               segPrecisionTYPE * V,
-               ImageSize * CurrSizes,
-               int verbose)
-{
-    int numel_masked=CurrSizes->numelmasked;
-    int num_class=CurrSizes->numclass;
-    bool OutliernessFlag=(Outlierness==NULL)?0:1;
-    segPrecisionTYPE inv_v [maxNumbClass*maxMultispectalSize*maxMultispectalSize]={0.0f};
-    segPrecisionTYPE inv_sqrt_V_2pi [maxNumbClass]={0.0f};
-
-    int Expec_offset [maxNumbClass]={0};
-
-    for (int cl=0; cl<num_class; cl++) {
-        Expec_offset[cl]=(int) cl*numel_masked;
-        if(CurrSizes->usize>1){
-            seg_Matrix <double> Vmat(CurrSizes->usize,CurrSizes->usize);
-
-            for(long j2=0; j2<CurrSizes->usize; j2++){
-                for(long i2=j2; i2<CurrSizes->usize; i2++){
-                    Vmat.setvalue(i2,j2,(double)(V[i2+j2*CurrSizes->usize+cl*CurrSizes->usize*CurrSizes->usize]));
-                    Vmat.setvalue(j2,i2,(double)(V[i2+j2*CurrSizes->usize+cl*CurrSizes->usize*CurrSizes->usize]));
-                }
-            }
-            inv_sqrt_V_2pi[cl]=1/(sqrtf(2*M_PI*Vmat.determinant()));
-            if(verbose>1){
-                cout<<endl<<"inv_sqrt_V_2pi["<< cl <<"]= "<< inv_sqrt_V_2pi[cl] << endl;
-                flush(cout);
-            }
-            Vmat.invert();
-            double cvalue=0.0f;
-            bool success;
-            if(verbose>1){
-                cout<<"inv_V["<< cl <<"]= ";
-                flush(cout);
-            }
-            for(long j2=0; j2<CurrSizes->usize; j2++){
-                if(verbose>1){
-                    if(j2!=0){
-                        cout<< endl << "          ";
-                    }
-                }
-                for(long i2=0; i2<CurrSizes->usize; i2++){
-                    Vmat.getvalue(i2,j2,cvalue,success);
-                    inv_v[i2+j2*CurrSizes->usize+cl*CurrSizes->usize*CurrSizes->usize]=(segPrecisionTYPE)(cvalue);
-                    if(verbose>1){
-                        cout<<inv_v[i2+j2*CurrSizes->usize+cl*CurrSizes->usize*CurrSizes->usize]<< "\t";
-                        flush(cout);
-                    }
-                }
-
-            }
-            if(verbose>1){
-                cout<< endl;
-            }
-        }
-        else{
-            inv_sqrt_V_2pi[cl]=1/(sqrtf(2*M_PI*V[cl]));
-            inv_v[cl]=1/V[cl];
-        }
-    }
-    loglik[0]=0;
-
-    //int * Expec_offset_PTR= (int *) Expec_offset;
-
-    float logliktmp=0.0f;
-
-
-#ifdef _OPENMP
-    float * loglikthread = new float [omp_get_max_threads()]();
-    for(long i=0; i<(long)omp_get_max_threads(); i++)
-        loglikthread[i]=0;
-
-#pragma omp parallel for shared(Expec,loglikthread,T1,BiasField,Outlierness,IterPrior)
-#endif
-    for (int i=0; i<numel_masked;i++) {
-        segPrecisionTYPE * T1_PTR = static_cast<segPrecisionTYPE *>(T1->data);
-        segPrecisionTYPE T1_Bias_corr[maxMultispectalSize];
-        segPrecisionTYPE SumExpec=0.0f;
-
-        for(long Multispec=0; Multispec<CurrSizes->usize; Multispec++)
-            T1_Bias_corr[Multispec]=(BiasField!=NULL)?(T1_PTR[S2L[i]+Multispec*CurrSizes->numel] + BiasField[i+Multispec*numel_masked]):(T1_PTR[S2L[i]+Multispec*CurrSizes->numel]);
-
-
-
-        //Expec_offset_PTR=Expec_offset;
-
-        for (int cl=0; cl<num_class; cl++) {
-            segPrecisionTYPE mahal=0.0f;
-            for(long Multispec=0; Multispec<CurrSizes->usize; Multispec++) {
-                segPrecisionTYPE tmpT1_BC_minusM=(T1_Bias_corr[Multispec] - M[cl*(CurrSizes->usize)+Multispec]);
-                for(long Multispec2=0; Multispec2<CurrSizes->usize; Multispec2++) {
-                    mahal-=(0.5f)*(T1_Bias_corr[Multispec2] - M[cl*(CurrSizes->usize)+Multispec2])*inv_v[cl*CurrSizes->usize*CurrSizes->usize+Multispec+Multispec2*CurrSizes->usize]*tmpT1_BC_minusM;
-                }
-            }
-
-            if(OutliernessFlag){
-                float outvalue=(expf(mahal)+0.01)/(expf(mahal)+expf(-0.5*(OutliernessThreshold*OutliernessThreshold))+0.01);
-                Outlierness[i+Expec_offset[cl]]=outvalue;
-            }
-            Expec[i+Expec_offset[cl]]=IterPrior[i+Expec_offset[cl]] * expf(mahal) * inv_sqrt_V_2pi[cl];
-            SumExpec+=Expec[i+Expec_offset[cl]];
-        }
-
-        if (SumExpec<=0.0 || SumExpec!=SumExpec){
-            for (int cl=0; cl<num_class; cl++) {
-                Expec[i+Expec_offset[cl]]=(float)(1)/(float)(num_class);
-            }
-
-        }
-        else{
-
-            for (int cl=0; cl<num_class; cl++) {
-                Expec[i+Expec_offset[cl]]=Expec[i+Expec_offset[cl]]/SumExpec;
-            }
-#ifdef _OPENMP
-            loglikthread[omp_get_thread_num()]+=logf(SumExpec);
-#else
-            logliktmp+=logf(SumExpec);
-#endif
-
-        }
-    }
-
-#ifdef _OPENMP
-    for(long i =0; i<(long)omp_get_max_threads(); i++)
-        logliktmp+=loglikthread[i];
-#endif
-
-    loglik[0]=logliktmp;
     return;
 }
 
