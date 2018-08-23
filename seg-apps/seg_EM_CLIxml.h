@@ -56,7 +56,7 @@ std::string xml_segEM =
     // The number of classes to segment
 
     "    <integer>\n"
-    "      <name>numb_classes</name>\n"
+    "      <name>numberOfClasses</name>\n"
     "      <longflag>nopriors</longflag>\n"
     "      <description>The number of classes to segment</description>\n"
     "      <label>Either...\n   number of classes [maximum is 5]</label>\n"
@@ -222,7 +222,7 @@ std::string xml_segEM =
     // Outlier threshold
 
     "    <float>\n"
-    "      <name>OutliernessThreshold</name>\n"
+    "      <name>outliernessThreshold</name>\n"
     "      <longflag>outlier_thresh</longflag>\n"
     "      <description>The Mahalanobis threshold for outlier detection [recommended between 3 and 7] (as in Van Leemput TMI 2003).</description>\n"
     "      <label>Outlier threshold</label>\n"

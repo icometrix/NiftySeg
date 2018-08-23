@@ -1,11 +1,12 @@
 #ifndef _SEG_EM_CPP
 #define _SEG_EM_CPP
 #include "_seg_EM_old.h"
+#include "_seg_matrix.h"
 
 seg_EM_old::seg_EM_old(int _numb_classes, int _nu,int _nt)
 {
 
-    this->inputImage=NULL; // pointer to external
+    this->InputImage=NULL; // pointer to external
 
     this->FilenameOut="Segmentation.nii.gz";
 
@@ -18,26 +19,26 @@ seg_EM_old::seg_EM_old(int _numb_classes, int _nu,int _nt)
     this->dx=0;
     this->dy=0;
     this->dz=0;
-    this->numel=0;
+    this->numElements=0;
     this->aprox=true;
     this->iter=0;
     this->checkpoint_iter=0;
     this->ratio=1000;
 
-    this->numb_classes=_numb_classes;
-    this->M= new float [MaxMultispectalSize*max_numbclass];
-    for(int i=0; i<(MaxMultispectalSize*max_numbclass); i++){
+    this->numberOfClasses=_numb_classes;
+    this->M= new float [maxMultispectalSize*maxNumbClass];
+    for(int i=0; i<(maxMultispectalSize*maxNumbClass); i++){
         this->M[i]=0.0f;
     }
-    this->V= new float [MaxMultispectalSize*MaxMultispectalSize*max_numbclass];
-    for(int i=0; i<(MaxMultispectalSize*MaxMultispectalSize*max_numbclass); i++){
+    this->V= new float [maxMultispectalSize*maxMultispectalSize*maxNumbClass];
+    for(int i=0; i<(maxMultispectalSize*maxMultispectalSize*maxNumbClass); i++){
         this->V[i]=0.0f;
     }
 
     this->Expec=NULL;
     this->ShortPrior=NULL;
-    this->Short_2_Long_Indices=NULL;
-    this->Long_2_Short_Indices=NULL;
+    this->S2L=NULL;
+    this->L2S=NULL;
     this->CurrSizes=NULL;
     this->reg_factor=1.1f;
 
@@ -50,12 +51,12 @@ seg_EM_old::seg_EM_old(int _numb_classes, int _nu,int _nt)
 
     this->maskImage_status=false;
     this->Mask=NULL; // pointer to external
-    this->numelmasked=0;
+    this->numElementsMasked=0;
 
     this->Priors_status=false;
     this->Priors=NULL;
 
-    this->MRF_status=false;
+    this->mrfStatus=false;
     this->MRF_strength=0.0f;
     this->MRF=NULL;
     this->MRF_beta=NULL;
@@ -63,9 +64,9 @@ seg_EM_old::seg_EM_old(int _numb_classes, int _nu,int _nt)
 
     this->Outlierness=NULL;
     this->OutliernessUSE=NULL;
-    this->OutliernessFlag=false;
-    this->OutliernessThreshold=0.0f;
-    this->Outlierness_ratio=0.01f;
+    this->outliernessStatus=false;
+    this->outliernessThreshold=0.0f;
+    this->outliernessRatio=0.01f;
 
     this->BiasField_status=false;
     this->BiasField_order=0;
@@ -79,7 +80,7 @@ seg_EM_old::seg_EM_old(int _numb_classes, int _nu,int _nt)
     this->Relax_status=false;
     this->Relax_factor=0;
     this->RelaxGaussKernelSize=0;
-    this->MAP_status=0;
+    this->mapStatus=0;
     this->MAP_M=NULL;
     this->MAP_V=NULL;
 }
@@ -112,7 +113,7 @@ seg_EM_old::~seg_EM_old()
         delete [] this->Outlierness;
     }
 
-    if(this->MRF_status){
+    if(this->mrfStatus){
         delete [] this->MRF;
         delete [] this->MRF_transitionMatrix;
     }
@@ -120,8 +121,8 @@ seg_EM_old::~seg_EM_old()
     this->MRF_transitionMatrix=NULL;
 
     if(this->maskImage_status){
-        delete [] this->Long_2_Short_Indices;
-        delete [] this->Short_2_Long_Indices;
+        delete [] this->L2S;
+        delete [] this->S2L;
 
     }
 
@@ -133,7 +134,7 @@ seg_EM_old::~seg_EM_old()
 
 int seg_EM_old::SetInputImage(nifti_image *r)
 {
-    this->inputImage = r;
+    this->InputImage = r;
     this->inputImage_status = true;
     // Size
     this->dimentions=(int)((r->nx)>1)+(int)((r->ny)>1)+(int)((r->nz)>1)+(int)((r->nt)>1)+(int)((r->nu)>1);
@@ -145,7 +146,7 @@ int seg_EM_old::SetInputImage(nifti_image *r)
     this->dx=r->dx;
     this->dy=r->dy;
     this->dz=r->dz;
-    this->numel=r->nz*r->ny*r->nx;
+    this->numElements=r->nz*r->ny*r->nx;
     if(this->nx==1 ||this->ny==1){
         cout<<"Error: The segmentation algorithm only takes 2D, 3D and 5D images. 2D images should be on the XY plane"<<endl;
         return 1;
@@ -157,12 +158,12 @@ int seg_EM_old::SetInputImage(nifti_image *r)
 
 int seg_EM_old::SetMAP( float *M, float* V)
 {
-    this->MAP_status=true;
-    this->MAP_M=new float[this->numb_classes];
-    this->MAP_V=new float[this->numb_classes];
+    this->mapStatus=true;
+    this->MAP_M=new float[this->numberOfClasses];
+    this->MAP_V=new float[this->numberOfClasses];
 
 
-    for(int i=0;i<this->numb_classes;i++){
+    for(int i=0;i<this->numberOfClasses;i++){
         this->MAP_M[i]=M[i];
         this->MAP_V[i]=V[i];
     }
@@ -217,10 +218,10 @@ int seg_EM_old::SetMaskImage(nifti_image *f)
     }
 
     bool * MaskDataPtr = static_cast<bool *>(Mask->data);
-    this->numelmasked=0;
-    for(int i=0; i<this->numel; i++,MaskDataPtr++){
+    this->numElementsMasked=0;
+    for(int i=0; i<this->numElements; i++,MaskDataPtr++){
         if((*MaskDataPtr)>0){
-            this->numelmasked++;
+            this->numElementsMasked++;
         }
     }
     if(this->nx==f->nx && this->ny==f->ny && this->nz==f->nz){
@@ -292,21 +293,21 @@ int seg_EM_old::SetAprox(bool aproxval)
 
 int seg_EM_old::Turn_MRF_ON(float strength)
 {
-    this->MRF_status=true;
+    this->mrfStatus=true;
     this->MRF_strength=strength;
-    this->MRF_transitionMatrix=new float[this->numb_classes*this->numb_classes]();
+    this->MRF_transitionMatrix=new float[this->numberOfClasses*this->numberOfClasses]();
     Create_diagonal_MRF_transitionMatrix();
 
 
     if(this->maskImage_status){
-        this->MRF=new float[this->numelmasked*this->numb_classes*this->nu*this->nt]();
-        for(int i=0; i<(this->numelmasked*this->numb_classes); i++){
+        this->MRF=new float[this->numElementsMasked*this->numberOfClasses*this->nu*this->nt]();
+        for(int i=0; i<(this->numElementsMasked*this->numberOfClasses); i++){
             MRF[i]=(float)(1.0);
         }
     }
     else{
-        this->MRF=new float[this->numel*this->numb_classes*this->nu*this->nt]();
-        for(int i=0; i<(this->numel*this->numb_classes); i++){
+        this->MRF=new float[this->numElements*this->numberOfClasses*this->nu*this->nt]();
+        for(int i=0; i<(this->numElements*this->numberOfClasses); i++){
             MRF[i]=(float)(1.0);
         }
     }
@@ -329,13 +330,13 @@ int seg_EM_old::Turn_BiasField_ON(int powerOrder,float ratiothresh)
 {
     this->BiasField_status=true;
     this->BiasField_order=powerOrder;
-    this->BiasField_coeficients = new SegPrecisionTYPE[((powerOrder+1)*(powerOrder+2)/2*(powerOrder+3)/3)*this->nu*this->nt]();
+    this->BiasField_coeficients = new segPrecisionTYPE[((powerOrder+1)*(powerOrder+2)/2*(powerOrder+3)/3)*this->nu*this->nt]();
     this->BiasField_ratio=ratiothresh;
     if(this->maskImage_status){
-        this->BiasField = new SegPrecisionTYPE[this->numelmasked*this->nu*this->nt]();
+        this->BiasField = new segPrecisionTYPE[this->numElementsMasked*this->nu*this->nt]();
     }
     else{
-        this->BiasField = new SegPrecisionTYPE[this->numel*this->nu*this->nt]();
+        this->BiasField = new segPrecisionTYPE[this->numElements*this->nu*this->nt]();
     }
     return 0;
 }
@@ -344,13 +345,13 @@ int seg_EM_old::Turn_BiasField_ON(int powerOrder,float ratiothresh)
 
 int seg_EM_old::Create_diagonal_MRF_transitionMatrix()
 {
-    for(int i=0;i<this->numb_classes;i++){
-        for(int j=0;j<this->numb_classes;j++){
+    for(int i=0;i<this->numberOfClasses;i++){
+        for(int j=0;j<this->numberOfClasses;j++){
             if(j==i){
-                this->MRF_transitionMatrix[i+j*this->numb_classes]=0;
+                this->MRF_transitionMatrix[i+j*this->numberOfClasses]=0;
             }
             else{
-                this->MRF_transitionMatrix[i+j*this->numb_classes]=this->MRF_strength;
+                this->MRF_transitionMatrix[i+j*this->numberOfClasses]=this->MRF_strength;
             }
         }
     }
@@ -368,7 +369,7 @@ int seg_EM_old::Create_CurrSizes()
     CurrSizes->zsize=this->nz;
     CurrSizes->usize=(this->nu>1)?this->nu:1;
     CurrSizes->tsize=(this->nt>1)?this->nt:1;
-    CurrSizes->numclass=this->numb_classes;
+    CurrSizes->numclass=this->numberOfClasses;
     CurrSizes->numelmasked=0;
     CurrSizes->numelbias=0;
     return 0;
@@ -377,94 +378,462 @@ int seg_EM_old::Create_CurrSizes()
 /* \/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/ */
 int seg_EM_old::OutliernessON(float in_OutliernessThreshold, float ratio){
 
-    this->OutliernessFlag=true;
-    this->OutliernessThreshold=in_OutliernessThreshold;
-    this->Outlierness_ratio=ratio;
+    this->outliernessStatus=true;
+    this->outliernessThreshold=in_OutliernessThreshold;
+    this->outliernessRatio=ratio;
     return 0;
 }
 
 
 /* \/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/ */
-int seg_EM_old::Maximization()
+void seg_EM_old::RunMaximization()
 {
-    if(this->MAP_status){
-        if(this->maskImage_status){
-            calcM_mask(this->inputImage,this->Expec,this->BiasField,this->Outlierness,this->Short_2_Long_Indices,M,V,this->MAP_M,this->MAP_V,this->reg_factor,CurrSizes,this->verbose_level);
-        }
-        else{
-            calcM(this->inputImage,this->Expec,this->BiasField,this->Outlierness,M,V,this->MAP_M,this->MAP_V,this->reg_factor,CurrSizes,this->verbose_level);
+
+    int verbose=this->verbose_level;
+    if(this->verbose_level>0)
+    {
+        cout<< "Optimising Mixture Model Parameters" << endl;
+        flush(cout);
+    }
+    bool OutliernessFlag=(Outlierness==NULL)?0:1;
+
+    int numel_masked=this->numElementsMasked;
+    int num_class=this->numberOfClasses;
+    int Expec_offset[maxNumbClass];
+    for (int cl=0; cl<num_class; cl++)
+    {
+        Expec_offset[cl]=cl*numel_masked;
+    }
+
+    segPrecisionTYPE * ExpectationTmpPTR = (segPrecisionTYPE *) this->Expec;
+    segPrecisionTYPE * OutliernessTmpPTR = (segPrecisionTYPE *) this->Outlierness;
+    segPrecisionTYPE * InputImageTmpPtr = static_cast<segPrecisionTYPE *>(this->InputImage->data);
+    segPrecisionTYPE * BiasFieldTmpPTR= (segPrecisionTYPE *) this->BiasField;
+
+#ifdef _OPENMP
+#pragma omp parallel for shared(InputImageTmpPtr,BiasFieldTmpPTR,OutliernessTmpPTR)
+#endif
+    // ***********
+    // For each class, get all the temporary pointers
+    for( int cl=0; cl<num_class; cl++)
+    {
+        int * S2L_PTR = (int *) this->S2L;
+        segPrecisionTYPE * ExpectationPTR = (segPrecisionTYPE *) ExpectationTmpPTR;
+        segPrecisionTYPE * OutliernessPTR = (segPrecisionTYPE *) OutliernessTmpPTR;
+        segPrecisionTYPE * InputImagePtr = (segPrecisionTYPE *) InputImageTmpPtr;
+        segPrecisionTYPE * BiasFieldPTR= (segPrecisionTYPE *) BiasFieldTmpPTR;
+        segPrecisionTYPE * T1_PTR2= (segPrecisionTYPE *) InputImageTmpPtr;
+        segPrecisionTYPE * BiasField_PTR2= (segPrecisionTYPE *) BiasFieldTmpPTR;
+
+        // MEAN
+        // For each multispectral data (or each time point), estimate the mean vector. This involves doing a weighted sum (tempsum/SumPriors) of the observed intensities, weighted by the responsabilities Expec_PTR, the OutliernessPTR. The Estimated mean uses the bias field corrected intensities (T1_PTR-BiasField_PTR)
+        for(long Multispec=0; Multispec<this->nu; Multispec++)
+        {
+            ExpectationPTR=(segPrecisionTYPE *) &Expec[Expec_offset[cl]];
+            OutliernessPTR=(segPrecisionTYPE *) &Outlierness[Expec_offset[cl]];
+            S2L_PTR = (int *) this->S2L;
+
+            InputImagePtr = static_cast<segPrecisionTYPE *>(this->InputImage->data);
+            InputImagePtr = &InputImagePtr[Multispec*this->numElements];
+            segPrecisionTYPE tempsum=(segPrecisionTYPE)0.0;
+            segPrecisionTYPE SumPriors=(segPrecisionTYPE)0.0;
+            // First, it estimates the weights tempsum and SumPriors.
+            if(OutliernessFlag)
+            {
+                if(BiasField!=NULL)
+                {
+                    BiasFieldPTR= &BiasField[Multispec*numel_masked];
+                    for (int i=0; i<numel_masked; i++, ExpectationPTR++,OutliernessPTR++,BiasFieldPTR++,S2L_PTR++)
+                    {
+                        segPrecisionTYPE current_value=(*ExpectationPTR)*(*OutliernessPTR)*(InputImagePtr[(*S2L_PTR)]+(*BiasFieldPTR));
+                        if(current_value==current_value)
+                        {
+                            tempsum+=current_value;
+                            SumPriors+=(*ExpectationPTR)*(*OutliernessPTR);
+                        }
+                    }
+                }
+                else
+                {
+                    for (int i=0; i<numel_masked; i++, ExpectationPTR++,S2L_PTR++)
+                    {
+                        segPrecisionTYPE current_value=(*ExpectationPTR)*(*OutliernessPTR)*(InputImagePtr[(*S2L_PTR)]);
+                        if(current_value==current_value)
+                        {
+                            tempsum+=current_value;
+                            SumPriors+=(*ExpectationPTR)*(*OutliernessPTR);
+                        }
+                    }
+                }
+            }
+            else
+            {
+                if(BiasField!=NULL)
+                {
+                    BiasFieldPTR= &BiasField[Multispec*numel_masked];
+                    for (int i=0; i<numel_masked; i++, ExpectationPTR++,BiasFieldPTR++,S2L_PTR++)
+                    {
+                        segPrecisionTYPE current_value=(*ExpectationPTR)*(InputImagePtr[(*S2L_PTR)]+(*BiasFieldPTR));
+                        if(current_value==current_value)
+                        {
+                            tempsum+=current_value;
+                            SumPriors+=(*ExpectationPTR);
+                        }
+                    }
+                }
+                else
+                {
+                    for (int i=0; i<numel_masked; i++, ExpectationPTR++,S2L_PTR++)
+                    {
+                        segPrecisionTYPE current_value=(*ExpectationPTR)*(InputImagePtr[(*S2L_PTR)]);
+                        if(current_value==current_value)
+                        {
+                            tempsum+=current_value;
+                            SumPriors+=(*ExpectationPTR);
+                        }
+                    }
+                }
+
+            }
+
+            // Second, estimates the actual mean M, the variance V
+            if(SumPriors==SumPriors && SumPriors>0)
+            {
+                if(this->mapStatus && this->MAP_M!=NULL)
+                {
+                    // The mean M
+                    M[cl*(this->nu)+Multispec]=(tempsum/SumPriors/powf(V[cl*(this->nu)+Multispec],2)+this->MAP_M[cl*(this->nu)+Multispec]/powf(this->MAP_V[cl*(this->nu)+Multispec],2))/(1/powf(V[cl*(this->nu)+Multispec],2)+1/powf(this->MAP_V[cl*(this->nu)+Multispec],2));
+                }
+                else
+                {
+                    M[cl*(this->nu)+Multispec]=tempsum/SumPriors;
+
+                }
+
+                // The Covariances V, which require looping through all the multispectral chanels again.
+                for(long Multispec2=Multispec; Multispec2<this->nu; Multispec2++)
+                {
+                    S2L_PTR = (int *) this->S2L;
+
+                    InputImagePtr = static_cast<segPrecisionTYPE *>(this->InputImage->data);
+                    InputImagePtr =&InputImagePtr[Multispec*this->numElements];
+
+                    T1_PTR2 = static_cast<segPrecisionTYPE *>(this->InputImage->data);
+                    T1_PTR2 =&T1_PTR2[Multispec2*this->numElements];
+                    segPrecisionTYPE tmpM=this->M[cl*this->nu+Multispec];
+                    segPrecisionTYPE tmpM2=this->M[cl*this->nu+Multispec2];
+                    tempsum=0;
+                    ExpectationPTR=&Expec[Expec_offset[cl]];
+                    OutliernessPTR=(segPrecisionTYPE *) &Outlierness[Expec_offset[cl]];
+
+                    if(BiasField!=NULL)
+                    {
+                        BiasFieldPTR=&BiasField[Multispec*numel_masked];
+                        BiasField_PTR2=&BiasField[Multispec2*numel_masked];
+                        if(OutliernessFlag)
+                        {
+                            for (int i=0; i<numel_masked; i++,ExpectationPTR++,BiasFieldPTR++,OutliernessPTR++,BiasField_PTR2++,S2L_PTR++)
+                            {
+
+                                segPrecisionTYPE currentValue=(*ExpectationPTR) * (*OutliernessPTR)*(InputImagePtr[(*S2L_PTR)]+(*BiasFieldPTR)-tmpM) * (T1_PTR2[(*S2L_PTR)]+(*BiasField_PTR2)-tmpM2);
+                                if(currentValue==currentValue)
+                                {
+                                    tempsum+=currentValue;
+                                }
+                            }
+                        }
+                        else
+                        {
+                            for (int i=0; i<numel_masked; i++,ExpectationPTR++,BiasFieldPTR++,BiasField_PTR2++,S2L_PTR++)
+                            {
+                                segPrecisionTYPE currentValue=(*ExpectationPTR) * (InputImagePtr[(*S2L_PTR)]+(*BiasFieldPTR)-tmpM) * (T1_PTR2[(*S2L_PTR)]+(*BiasField_PTR2)-tmpM2);
+                                if(currentValue==currentValue)
+                                {
+                                    tempsum+=currentValue;
+                                }
+                            }
+                        }
+                    }
+                    else
+                    {
+                        for (int i=0; i<numel_masked; i++,ExpectationPTR++,S2L_PTR++)
+                        {
+                            segPrecisionTYPE current_vaue=(*ExpectationPTR) * (InputImagePtr[(*S2L_PTR)]-tmpM) * (T1_PTR2[(*S2L_PTR)]-tmpM2);
+                            if(current_vaue==current_vaue)
+                            {
+                                tempsum+=current_vaue;
+                            }
+                        }
+
+                    }
+                    if( (tempsum/SumPriors>0) && SumPriors>0  && (!isnan(tempsum/SumPriors)))
+                    {
+                        // assign tempsum/SumPriors to the uper triangular part
+                        V[cl*this->nu*this->nu+Multispec+Multispec2*this->nu]=tempsum/SumPriors;
+                        //if the value is not in a diagonal
+                        if(Multispec2!=Multispec)
+                        {
+                            // then copy to the botom triangular part
+                            V[cl*this->nu*this->nu+Multispec2+Multispec*this->nu]=V[cl*this->nu*this->nu+Multispec+Multispec2*this->nu];
+                            // and regularise the value by dividing by the reg_factor.
+                            V[cl*this->nu*this->nu+Multispec+Multispec2*this->nu]/=reg_factor;
+                            V[cl*this->nu*this->nu+Multispec2+Multispec*this->nu]/=reg_factor;
+                        }
+                    }
+                }
+            }
         }
     }
-    else{
-        if(this->maskImage_status){
-            calcM_mask(this->inputImage,this->Expec,this->BiasField,this->Outlierness,this->Short_2_Long_Indices,M,V,NULL,NULL,this->reg_factor,CurrSizes,this->verbose_level);
-        }
-        else{
-            calcM(this->inputImage,this->Expec,this->BiasField,this->Outlierness,M,V,NULL,NULL,this->reg_factor,CurrSizes,this->verbose_level);
+
+    // This section is only for printing.
+    if(verbose>0)
+    {
+        for (int cl=0; cl<num_class; cl++)
+        {
+            if(this->nu==1)
+            {
+                cout.fill('0');
+                cout<< "M["<<(int)(cl)<<"]= "<<setw(10)<<setprecision(7)<<left<<(segPrecisionTYPE)(M[cl])<<"\tV["<<(int)(cl)<<"]="<<setw(10)<<setprecision(7)<<left<<(segPrecisionTYPE)(V[cl])<< endl;
+                flush(cout);
+            }
+            else
+            {
+                cout<< "M["<<(int)(cl)<<"]= ";
+                for(long Multispec=0; Multispec<this->nu; Multispec++)
+                {
+                    cout<< setw(10)<<setprecision(7)<<left<<(segPrecisionTYPE)(M[cl*this->nu+Multispec])<<"\t";
+                }
+                cout<< endl;
+                flush(cout);
+                cout<< "V["<<(int)(cl)<<"]= ";
+                for(long Multispec=0; Multispec<this->nu; Multispec++)
+                {
+                    if(Multispec>0)
+                    {
+                        cout<< "      ";
+                    }
+                    for(long Multispec2=0; Multispec2<this->nu; Multispec2++)
+                    {
+                        cout<< setw(10)<<setprecision(7)<<left<<(segPrecisionTYPE)(V[cl*this->nu*this->nu+Multispec*this->nu+Multispec2])<<"\t";
+                    }
+                    cout<< endl;
+                }
+                cout<< endl;
+                flush(cout);
+            }
         }
     }
-    return 1;
+    return;
 }
 
 /* \/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/ */
 
-int seg_EM_old::Expectation()
+void seg_EM_old::RunExpectation()
 {
-
-    if(this->ratio<(SegPrecisionTYPE)(this->Outlierness_ratio) && this->OutliernessUSE==NULL && this->OutliernessFlag){
+    if(this->ratio<(segPrecisionTYPE)(this->outliernessRatio) && this->outliernessStatus)
+    {
         this->OutliernessUSE=this->Outlierness;
-        if(this->verbose_level>0){
+        if(this->verbose_level>0)
+        {
             cout << "Updating Outlierness - LogRatio = "<<ratio<<endl;
         }
-        this->loglik=2;
-        this->oldloglik=1;
-        this->checkpoint_iter=(this->iter+2)>(this->checkpoint_iter)?(this->iter+2):this->checkpoint_iter;
     }
 
-    //update
-    if(this->MRF_status){
-        if(this->maskImage_status){
-            calcE_mask(this->inputImage,this->MRF,this->Expec,&this->loglik,this->BiasField,this->OutliernessUSE,this->OutliernessThreshold,this->Short_2_Long_Indices,this->M,this->V,CurrSizes,this->verbose_level);
-        }
-        else{
-            calcE(this->inputImage,this->MRF,this->Expec,&this->loglik,this->BiasField,this->OutliernessUSE,this->OutliernessThreshold,this->M,this->V,CurrSizes,this->verbose_level);
-        }
+    segPrecisionTYPE * IterPrior=NULL;
+    if(this->mrfStatus)
+    {
+        IterPrior=this->MRF;
     }
-    else{
+    else
+    {
+        IterPrior=this->ShortPrior;
+    }
 
-        if(this->maskImage_status){
-            calcE_mask(this->inputImage,this->ShortPrior,this->Expec,&this->loglik,this->BiasField,this->OutliernessUSE,this->OutliernessThreshold,this->Short_2_Long_Indices,this->M,this->V,CurrSizes,this->verbose_level);
+    int numel_masked=this->numElementsMasked;
+    int num_class=this->numberOfClasses;
+    bool OutliernessFlag=(this->OutliernessUSE==NULL)?0:1;
+    segPrecisionTYPE inv_v [maxNumbClass*maxMultispectalSize*maxMultispectalSize]= {0.0f};
+    segPrecisionTYPE inv_sqrt_V_2pi [maxNumbClass]= {0.0f};
+
+    int Expec_offset [maxNumbClass]= {0};
+
+    // for each class, do
+    for (int cl=0; cl<num_class; cl++)
+    {
+        Expec_offset[cl]=(int) cl*numel_masked;
+        // if multimodal, do
+        if(this->nu>1)
+        {
+            seg_Matrix <double> Vmat(this->nu,this->nu);
+            for (long j2=0; j2<this->nu; j2++)
+            {
+                for (long i2=j2; i2<this->nu; i2++)
+                {
+                    Vmat.setvalue(i2,j2,(double)(this->V[i2+j2*this->nu+cl*this->nu*this->nu]));
+                    Vmat.setvalue(j2,i2,(double)(this->V[i2+j2*this->nu+cl*this->nu*this->nu]));
+                }
+            }
+            // Get the Gaussian normaliser
+            inv_sqrt_V_2pi[cl]=1/(sqrtf(2*M_PI*Vmat.determinant()));
+            if (this->verbose_level>1)
+            {
+                cout<<endl<<"inv_sqrt_V_2pi["<< cl <<"]= "<< inv_sqrt_V_2pi[cl] << endl;
+                flush(cout);
+            }
+            // Get the inverted covariance matrix
+            Vmat.invert();
+            double covarianceValue=0.0f;
+            bool success;
+            // Print if in debug, i.e. verbose_level==2
+            if (this->verbose_level>1)
+            {
+                cout<<"inv_V["<< cl <<"]= ";
+                flush(cout);
+            }
+            for (long j2=0; j2<this->nu; j2++)
+            {
+                if(this->verbose_level>1)
+                {
+                    if(j2!=0)
+                    {
+                        cout<< endl << "          ";
+                    }
+                }
+                for(long i2=0; i2<this->nu; i2++)
+                {
+                    // copy data from Vmat to inv_v
+                    Vmat.getvalue(i2,j2,covarianceValue,success);
+                    inv_v[i2+j2*this->nu+cl*this->nu*this->nu]=(segPrecisionTYPE)(covarianceValue);
+                    if(this->verbose_level>1)
+                    {
+                        cout<<inv_v[i2+j2*this->nu+cl*this->nu*this->nu]<< "\t";
+                        flush(cout);
+                    }
+                }
+
+            }
+            if(this->verbose_level>1)
+            {
+                cout<< endl;
+            }
         }
-        else{
-            calcE(this->inputImage,this->ShortPrior,this->Expec,&this->loglik,this->BiasField,this->OutliernessUSE,this->OutliernessThreshold,this->M,this->V,CurrSizes,this->verbose_level);
+            // else, just get the gaussian normaliser and the inverse covariance determinant
+        else
+        {
+            inv_sqrt_V_2pi[cl]=1/(sqrtf(2*M_PI*V[cl]));
+            inv_v[cl]=1/V[cl];
         }
     }
-    //}
-    return 0;
+    this->loglik=0;
+    segPrecisionTYPE logliktmp=0.0f;
+
+
+    segPrecisionTYPE * ExpectationTmpPTR = (segPrecisionTYPE *) this->Expec;
+    segPrecisionTYPE * OutliernessTmpPTR = (segPrecisionTYPE *) this->Outlierness;
+    segPrecisionTYPE * InputImageTmpPtr = static_cast<segPrecisionTYPE *>(this->InputImage->data);
+    segPrecisionTYPE * BiasFieldTmpPTR= (segPrecisionTYPE *) this->BiasField;
+
+#ifdef _OPENMP
+    segPrecisionTYPE * loglikthread = new segPrecisionTYPE [omp_get_max_threads()]();
+    for(long i=0; i<(long)omp_get_max_threads(); i++)
+        loglikthread[i]=0;
+
+#pragma omp parallel for shared(ExpectationTmpPTR,loglikthread,InputImageTmpPtr,BiasFieldTmpPTR,OutliernessTmpPTR,IterPrior)
+#endif
+    // Now that we have the Gaussian normaliser and the inverted determinant of the covariance, estimate the Gaussian PDF. We do that independently per voxel.
+    for (int i=0; i<numel_masked; i++)
+    {
+        segPrecisionTYPE * T1_PTR = (segPrecisionTYPE *)(InputImageTmpPtr);
+        segPrecisionTYPE T1_Bias_corr[maxMultispectalSize];
+        segPrecisionTYPE SumExpec=0.0f;
+
+        // For each modality, estimate the bias field corrected intensity first
+        for(long Multispec=0; Multispec<this->nu; Multispec++)
+            T1_Bias_corr[Multispec]=(BiasFieldTmpPTR!=NULL)?(T1_PTR[this->S2L[i]+Multispec*this->numElements] + BiasFieldTmpPTR[i+Multispec*numel_masked]):(T1_PTR[this->S2L[i]+Multispec*this->numElements]);
+
+        // Then, for each class and for each modality, iterate over all modalities and subtract their (Y-\Mu)/inv(|\Sigma|) in order to get the Mahalanobis distance.
+        for (int cl=0; cl<num_class; cl++)
+        {
+            segPrecisionTYPE mahal=0.0f;
+            for(long Multispec=0; Multispec<this->nu; Multispec++)
+            {
+                segPrecisionTYPE tmpT1_BC_minusM=(T1_Bias_corr[Multispec] - this->M[cl*(this->nu)+Multispec]);
+                for(long Multispec2=0; Multispec2<this->nu; Multispec2++)
+                {
+                    mahal-=(0.5f)*(T1_Bias_corr[Multispec2] - M[cl*(this->nu)+Multispec2])*inv_v[cl*this->nu*this->nu+Multispec+Multispec2*this->nu]*tmpT1_BC_minusM;
+                }
+            }
+
+            // If the outlierness threshold is used, estimate here the new outlierness values. Note that this value is different per class. The 0.01 are there for stability reasons.
+            if(OutliernessFlag)
+            {
+                segPrecisionTYPE outvalue=(expf(mahal)+0.01)/(expf(mahal)+expf(-0.5*(this->outliernessThreshold*this->outliernessThreshold))+0.01);
+                OutliernessTmpPTR[i+Expec_offset[cl]]=outvalue;
+            }
+            // Update the Expectation by calculating, Prior*GaussianPDF
+            ExpectationTmpPTR[i+Expec_offset[cl]]=IterPrior[i+Expec_offset[cl]] * ( inv_sqrt_V_2pi[cl] * expf(mahal) ) ;
+            // Update the normaliser
+            SumExpec+=ExpectationTmpPTR[i+Expec_offset[cl]];
+        }
+
+        // If something went wrong, just set the expectation to 1/K
+        if (SumExpec<=0.0 || SumExpec!=SumExpec)
+        {
+            for (int cl=0; cl<num_class; cl++)
+            {
+                ExpectationTmpPTR[i+Expec_offset[cl]]=(segPrecisionTYPE)(1)/(segPrecisionTYPE)(num_class);
+            }
+
+        }
+            // If it worked, then normalise the expectations, thus obtaining a per voxel responsability
+        else
+        {
+
+            for (int cl=0; cl<num_class; cl++)
+            {
+                ExpectationTmpPTR[i+Expec_offset[cl]]=ExpectationTmpPTR[i+Expec_offset[cl]]/SumExpec;
+            }
+#ifdef _OPENMP
+            loglikthread[omp_get_thread_num()]+=logf(SumExpec);
+#else
+            logliktmp+=logf(SumExpec);
+#endif
+        }
+    }
+
+#ifdef _OPENMP
+    for(long i =0; i<(long)omp_get_max_threads(); i++)
+        logliktmp+=loglikthread[i];
+#endif
+
+    // update the log likelihood
+    loglik=logliktmp;
+
+    return;
 
 }
 
 /* \/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/ */
 
-int seg_EM_old::UpdateMRF()
+int seg_EM_old::RunMRF()
 {
     if(this->nz>1){
-        if(this->MRF_status){
+        if(this->mrfStatus){
             if(this->maskImage_status){
-                MRFregularization_mask(this->Expec,this->MRF_transitionMatrix,this->MRF_transitionMatrix,this->MRF_beta,this->MRF,this->ShortPrior,this->Long_2_Short_Indices,this->Short_2_Long_Indices,this->CurrSizes,this->MRF_status, this->verbose_level);
+                MRFregularization_mask(this->Expec,this->MRF_transitionMatrix,this->MRF_transitionMatrix,this->MRF_beta,this->MRF,this->ShortPrior,this->L2S,this->S2L,this->CurrSizes,this->mrfStatus, this->verbose_level);
             }
             else{
-                MRFregularization(this->Expec,this->MRF_transitionMatrix,this->MRF_transitionMatrix,this->MRF_beta,this->MRF,this->ShortPrior,this->CurrSizes,this->MRF_status, this->verbose_level);
+                MRFregularization(this->Expec,this->MRF_transitionMatrix,this->MRF_transitionMatrix,this->MRF_beta,this->MRF,this->ShortPrior,this->CurrSizes,this->mrfStatus, this->verbose_level);
             }
         }
     }
     else if(this->nz==1){
-        if(this->MRF_status){
+        if(this->mrfStatus){
             if(this->maskImage_status){
-                MRFregularization_mask2D(this->Expec,this->MRF_transitionMatrix,this->MRF_transitionMatrix,this->MRF_beta,this->MRF,this->ShortPrior,this->Long_2_Short_Indices,this->Short_2_Long_Indices,this->CurrSizes,this->MRF_status, this->verbose_level);
+                MRFregularization_mask2D(this->Expec,this->MRF_transitionMatrix,this->MRF_transitionMatrix,this->MRF_beta,this->MRF,this->ShortPrior,this->L2S,this->S2L,this->CurrSizes,this->mrfStatus, this->verbose_level);
             }
             else{
-                MRFregularization2D(this->Expec,this->MRF_transitionMatrix,this->MRF_transitionMatrix,this->MRF_beta,this->MRF,this->ShortPrior,this->CurrSizes,this->MRF_status, this->verbose_level);
+                MRFregularization2D(this->Expec,this->MRF_transitionMatrix,this->MRF_transitionMatrix,this->MRF_beta,this->MRF,this->ShortPrior,this->CurrSizes,this->mrfStatus, this->verbose_level);
             }
         }
     }
@@ -474,21 +843,21 @@ int seg_EM_old::UpdateMRF()
 
 /* \/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/ */
 
-int seg_EM_old::UpdateBiasField()
+int seg_EM_old::RunBiasField()
 {
     if(this->BiasField_status){
-        if((((this->loglik-this->oldloglik)/fabs(this->oldloglik))<(SegPrecisionTYPE)(this->BiasField_ratio) && this->iter>3)||((SegPrecisionTYPE)(this->BiasField_ratio)==0.0f)){
+        if((((this->loglik-this->oldloglik)/fabs(this->oldloglik))<(segPrecisionTYPE)(this->BiasField_ratio) && this->iter>3)||((segPrecisionTYPE)(this->BiasField_ratio)==0.0f)){
             if(this->maskImage_status){
                 if(this->nz>1){
 
-                    BiasCorrection_mask(this->BiasField,this->BiasField_coeficients,this->inputImage,this->Long_2_Short_Indices,Expec,this->OutliernessUSE,this->M,this->V,this->BiasField_order,CurrSizes,this->BiasField_status,this->verbose_level);
+                    BiasCorrection_mask(this->BiasField,this->BiasField_coeficients,this->InputImage,this->L2S,Expec,this->OutliernessUSE,this->M,this->V,this->BiasField_order,CurrSizes,this->BiasField_status,this->verbose_level);
                 }
                 else{
-                    BiasCorrection_mask2D(this->BiasField,this->BiasField_coeficients,this->inputImage,this->Long_2_Short_Indices,Expec,this->OutliernessUSE,this->M,this->V,this->BiasField_order,CurrSizes,this->BiasField_status,this->verbose_level);
+                    BiasCorrection_mask2D(this->BiasField,this->BiasField_coeficients,this->InputImage,this->L2S,Expec,this->OutliernessUSE,this->M,this->V,this->BiasField_order,CurrSizes,this->BiasField_status,this->verbose_level);
                 }
             }
             else{
-                BiasCorrection(this->BiasField,this->BiasField_coeficients,this->inputImage,Expec,this->OutliernessUSE,this->M,this->V,this->BiasField_order,CurrSizes,this->BiasField_status,this->verbose_level);
+                BiasCorrection(this->BiasField,this->BiasField_coeficients,this->InputImage,Expec,this->OutliernessUSE,this->M,this->V,this->BiasField_order,CurrSizes,this->BiasField_status,this->verbose_level);
             }
         }
     }
@@ -498,7 +867,7 @@ int seg_EM_old::UpdateBiasField()
 
 /* \/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/ */
 
-int seg_EM_old::UpdatePriorWeight()
+int seg_EM_old::RunPriorRelaxation()
 {
     if(this->Relax_status){
 
@@ -506,7 +875,7 @@ int seg_EM_old::UpdatePriorWeight()
             if((int)(this->verbose_level)>(int)(0)){
                 cout << "Relaxing Priors"<< endl;
             }
-            PriorWeight_mask(this->ShortPrior,this->Priors,this->Expec,this->RelaxGaussKernelSize,this->Relax_factor,this->Short_2_Long_Indices,this->Long_2_Short_Indices,CurrSizes,this->verbose_level);
+            PriorWeight_mask(this->ShortPrior,this->Priors,this->Expec,this->RelaxGaussKernelSize,this->Relax_factor,this->S2L,this->L2S,CurrSizes,this->verbose_level);
         }
         else{
             if((int)(this->verbose_level)>(int)(0)){
@@ -521,30 +890,30 @@ int seg_EM_old::UpdatePriorWeight()
 
 /* \/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/ */
 
-int seg_EM_old::Normalize_Image_and_Priors()
+int seg_EM_old::InitializeAndNormalizeImageAndPriors()
 {
     if(this->maskImage_status){
         if(this->Priors_status)Normalize_NaN_Priors_mask(this->Priors,this->Mask,this->verbose_level);
-        Normalize_Image_mask(this->inputImage,this->Mask,CurrSizes,this->verbose_level);
+        Normalize_Image_mask(this->InputImage,this->Mask,CurrSizes,this->verbose_level);
 
-        this->Short_2_Long_Indices = Create_Short_2_Long_Matrix_from_NII(this->Mask,&(CurrSizes->numelmasked));
-        this->Long_2_Short_Indices = Create_Long_2_Short_Matrix_from_NII(this->Mask);
-        this->numelmasked=(CurrSizes->numelmasked);
+        this->S2L = Create_Short_2_Long_Matrix_from_NII(this->Mask,&(CurrSizes->numelmasked));
+        this->L2S = Create_Long_2_Short_Matrix_from_NII(this->Mask);
+        this->numElementsMasked=(CurrSizes->numelmasked);
     }
     else{
         if(this->Priors_status)Normalize_NaN_Priors(this->Priors,this->verbose_level);
 
-        Normalize_Image(this->inputImage,CurrSizes,this->verbose_level);
+        Normalize_Image(this->InputImage,CurrSizes,this->verbose_level);
     }
 
-    if(this->MAP_status){
-        for(int i=0;i<this->numb_classes;i++){
+    if(this->mapStatus){
+        for(int i=0;i<this->numberOfClasses;i++){
             this->MAP_M[i]=logf(((this->MAP_M[i]-CurrSizes->rescale_min[0])/(CurrSizes->rescale_max[0]-CurrSizes->rescale_min[0]))+1)/0.693147181;;
             if(this->verbose_level>0){
                 cout << "MAP_M["<<i<<"] = "<<this->MAP_M[i]<< endl;
             }
             this->M[i]=this->MAP_M[i];
-            this->V[i]=1.0/this->numb_classes;
+            this->V[i]=1.0/this->numberOfClasses;
         }
     }
     return 0;
@@ -571,41 +940,41 @@ int seg_EM_old::Allocate_and_Initialize()
         Intensity_Based_Inisitalization_of_Means();
         int tmpnumb_elem=0;
         if(this->maskImage_status){
-            tmpnumb_elem=(this->numelmasked*(this->numb_classes+(int)(this->PV_model_status)*2));
+            tmpnumb_elem=(this->numElementsMasked*(this->numberOfClasses+(int)(this->PV_model_status)*2));
         }
         else{
-            tmpnumb_elem=(numel*(this->numb_classes+(int)(this->PV_model_status)*2));
+            tmpnumb_elem=(numElements*(this->numberOfClasses+(int)(this->PV_model_status)*2));
         }
 
-        float tmpnumb_clas=((this->numb_classes+(int)(this->PV_model_status)*2));
-        this->Expec=new SegPrecisionTYPE [tmpnumb_elem] ();
-        this->ShortPrior=new SegPrecisionTYPE [tmpnumb_elem] ();
+        float tmpnumb_clas=((this->numberOfClasses+(int)(this->PV_model_status)*2));
+        this->Expec=new segPrecisionTYPE [tmpnumb_elem] ();
+        this->ShortPrior=new segPrecisionTYPE [tmpnumb_elem] ();
         for(int i=0; i<tmpnumb_elem; i++){
             this->Expec[i]=1.0/tmpnumb_clas;
             this->ShortPrior[i]=1.0/tmpnumb_clas;
         }
-        for (int cl=0; cl<this->numb_classes; cl++)
+        for (int cl=0; cl<this->numberOfClasses; cl++)
             if(this->maskImage_status){
-                calcE_mask(this->inputImage,this->ShortPrior,this->Expec,&this->loglik,this->BiasField,NULL,0,this->Short_2_Long_Indices,this->M,this->V,CurrSizes,this->verbose_level);
+                calcE_mask(this->InputImage,this->ShortPrior,this->Expec,&this->loglik,this->BiasField,NULL,0,this->S2L,this->M,this->V,CurrSizes,this->verbose_level);
             }
             else{
-                calcE(this->inputImage,this->ShortPrior,this->Expec,&this->loglik,this->BiasField,NULL,0,this->M,this->V,CurrSizes,this->verbose_level);
+                calcE(this->InputImage,this->ShortPrior,this->Expec,&this->loglik,this->BiasField,NULL,0,this->M,this->V,CurrSizes,this->verbose_level);
             }
 
     }
 
-    for (int cl=0; cl<this->numb_classes; cl++)
+    for (int cl=0; cl<this->numberOfClasses; cl++)
 
-        if(this->OutliernessFlag){
+        if(this->outliernessStatus){
             int tmpnumb_elem=0;
             if(this->maskImage_status){
-                tmpnumb_elem=(this->numelmasked*(this->numb_classes+(int)(this->PV_model_status)*2));
+                tmpnumb_elem=(this->numElementsMasked*(this->numberOfClasses+(int)(this->PV_model_status)*2));
             }
             else{
-                tmpnumb_elem=(numel*(this->numb_classes+(int)(this->PV_model_status)*2));
+                tmpnumb_elem=(numElements*(this->numberOfClasses+(int)(this->PV_model_status)*2));
             }
             this->OutliernessUSE=NULL;
-            this->Outlierness=new SegPrecisionTYPE [tmpnumb_elem] ();
+            this->Outlierness=new segPrecisionTYPE [tmpnumb_elem] ();
             for(int i=0; i<tmpnumb_elem; i++){
                 this->Outlierness[i]=1.0;
             }
@@ -620,7 +989,7 @@ int seg_EM_old::Intensity_Based_Inisitalization_of_Means()
 {
 
     for(int ms=0; ms<this->nu; ms++){
-        SegPrecisionTYPE * Intensity_PTR = static_cast<SegPrecisionTYPE *>(this->inputImage->data);
+        segPrecisionTYPE * Intensity_PTR = static_cast<segPrecisionTYPE *>(this->InputImage->data);
         bool * MaskDataPtr=NULL;
         if(this->maskImage_status){
             MaskDataPtr = static_cast<bool *>(this->Mask->data);
@@ -629,17 +998,17 @@ int seg_EM_old::Intensity_Based_Inisitalization_of_Means()
         float meanval=0.0;
         float variance=0.0;
 
-        for(int i=0; i<this->numel; i++){
+        for(int i=0; i<this->numElements; i++){
             if(!this->maskImage_status || MaskDataPtr[i]>0){
                 mycounter++;
-                meanval+=(Intensity_PTR[i+ms*this->numel]);
+                meanval+=(Intensity_PTR[i+ms*this->numElements]);
             }
         }
         meanval=meanval/mycounter;
 
-        for(int i=0; i<this->numel; i++){
+        for(int i=0; i<this->numElements; i++){
             if(!this->maskImage_status || MaskDataPtr[i]>0 ){
-                variance+=pow((meanval-Intensity_PTR[i+ms*this->numel]),2);
+                variance+=pow((meanval-Intensity_PTR[i+ms*this->numElements]),2);
             }
         }
         variance=variance/mycounter;
@@ -652,33 +1021,33 @@ int seg_EM_old::Intensity_Based_Inisitalization_of_Means()
 
 
 
-        for(int i=0; i<this->numel; i++){
+        for(int i=0; i<this->numElements; i++){
             if(!this->maskImage_status || MaskDataPtr[i]>0){
-                if(tmpmax<(int)(Intensity_PTR[i+ms*this->numel])){
-                    tmpmax=(int)(Intensity_PTR[i+ms*this->numel]);
+                if(tmpmax<(int)(Intensity_PTR[i+ms*this->numElements])){
+                    tmpmax=(int)(Intensity_PTR[i+ms*this->numElements]);
                 }
-                if(tmpmin>(int)(Intensity_PTR[i+ms*this->numel])){
-                    tmpmin=(int)(Intensity_PTR[i+ms*this->numel]);
+                if(tmpmin>(int)(Intensity_PTR[i+ms*this->numElements])){
+                    tmpmin=(int)(Intensity_PTR[i+ms*this->numElements]);
                 }
             }
         }
 
-        for(int i=0; i<this->numel; i++){
+        for(int i=0; i<this->numElements; i++){
             if(!this->maskImage_status || MaskDataPtr[i]>0){
 
-                int index4hist=(int)(1000.0f*(float)(Intensity_PTR[i+ms*this->numel]-tmpmin)/(float)(tmpmax-tmpmin));
+                int index4hist=(int)(1000.0f*(float)(Intensity_PTR[i+ms*this->numElements]-tmpmin)/(float)(tmpmax-tmpmin));
                 if((index4hist>1000) & (index4hist<0)){
                     cout<< "error"<<endl;
                 }
-                histogram[(int)(1000.0*(float)(Intensity_PTR[i+ms*this->numel]-tmpmin)/(float)(tmpmax-tmpmin))]++;
+                histogram[(int)(1000.0*(float)(Intensity_PTR[i+ms*this->numElements]-tmpmin)/(float)(tmpmax-tmpmin))]++;
             }
         }
 
 
-        for(int clas=0; clas<this->numb_classes; clas++){
+        for(int clas=0; clas<this->numberOfClasses; clas++){
             float tmpsum=0;
             int tmpindex=0;
-            float percentile=((float)clas+1)/(this->numb_classes+1);
+            float percentile=((float)clas+1)/(this->numberOfClasses+1);
             for(int i=999;i>0;i--){
                 tmpsum+=histogram[i];
                 tmpindex=i;
@@ -687,23 +1056,23 @@ int seg_EM_old::Intensity_Based_Inisitalization_of_Means()
                 }
             }
             M[clas*CurrSizes->usize+ms]=float(tmpindex)*(tmpmax-tmpmin)/1000.0f+(tmpmin);
-            V[clas*CurrSizes->usize*CurrSizes->usize+ms*CurrSizes->usize+ms]=variance/this->numb_classes/2;
+            V[clas*CurrSizes->usize*CurrSizes->usize+ms*CurrSizes->usize+ms]=variance/this->numberOfClasses/2;
         }
     }
 
 
-    for (int cl=0; cl<this->numb_classes; cl++) {
+    for (int cl=0; cl<this->numberOfClasses; cl++) {
         if(this->verbose_level>0){
             if(CurrSizes->usize==1){
                 cout.fill('0');
-                cout<< "M["<<(int)(cl)<<"]= "<<setw(10)<<setprecision(7)<<left<<(SegPrecisionTYPE)(M[cl])<<"\tV["<<(int)(cl)<<"]="<<setw(10)<<setprecision(7)<<left<<(SegPrecisionTYPE)(V[cl])<< endl;
+                cout<< "M["<<(int)(cl)<<"]= "<<setw(10)<<setprecision(7)<<left<<(segPrecisionTYPE)(M[cl])<<"\tV["<<(int)(cl)<<"]="<<setw(10)<<setprecision(7)<<left<<(segPrecisionTYPE)(V[cl])<< endl;
                 flush(cout);
             }
             else{
 
                 cout<< "M["<<(int)(cl)<<"]= ";
                 for(int Multispec=0; Multispec<CurrSizes->usize; Multispec++) {
-                    cout<< setw(10)<<setprecision(7)<<left<<(SegPrecisionTYPE)(M[cl*CurrSizes->usize+Multispec])<<"\t";
+                    cout<< setw(10)<<setprecision(7)<<left<<(segPrecisionTYPE)(M[cl*CurrSizes->usize+Multispec])<<"\t";
                 }
                 cout<< endl;
                 flush(cout);
@@ -713,7 +1082,7 @@ int seg_EM_old::Intensity_Based_Inisitalization_of_Means()
                         cout<< "      ";
                     }
                     for(int Multispec2=0; Multispec2<CurrSizes->usize; Multispec2++) {
-                        cout<< setw(10)<<setprecision(7)<<left<<(SegPrecisionTYPE)(V[cl*CurrSizes->usize*CurrSizes->usize+Multispec*CurrSizes->usize+Multispec2])<<"\t";
+                        cout<< setw(10)<<setprecision(7)<<left<<(segPrecisionTYPE)(V[cl*CurrSizes->usize*CurrSizes->usize+Multispec*CurrSizes->usize+Multispec2])<<"\t";
                     }
                     cout<< endl;
                 }
@@ -729,13 +1098,13 @@ int seg_EM_old::Intensity_Based_Inisitalization_of_Means()
 
 float * seg_EM_old::GetMeans()
 {
-    float * OutM= new float [this->nu*this->numb_classes];
+    float * OutM= new float [this->nu*this->numberOfClasses];
     int index=0;
-    for(int j=0; j<(this->numb_classes); j++){
+    for(int j=0; j<(this->numberOfClasses); j++){
         for(int i=0; i<(this->nu); i++){
-            //cout << "M["<<j<<"]="<<this->M[j+i*this->numb_classes]<<endl;
+            //cout << "M["<<j<<"]="<<this->M[j+i*this->numberOfClasses]<<endl;
             float resize=exp((this->M[index++])*0.693147181)-1;
-            OutM[j+i*this->numb_classes]=(resize*(CurrSizes->rescale_max[i]-CurrSizes->rescale_min[i])+CurrSizes->rescale_min[i]);
+            OutM[j+i*this->numberOfClasses]=(resize*(CurrSizes->rescale_max[i]-CurrSizes->rescale_min[i])+CurrSizes->rescale_min[i]);
         }
     }
 
@@ -744,12 +1113,12 @@ float * seg_EM_old::GetMeans()
 /*
 float * seg_EM_old::GetSTD()
 {
-  float * OutV= new float [this->nu *this->numb_classes*this->numb_classes];
+  float * OutV= new float [this->nu *this->numberOfClasses*this->numberOfClasses];
   for(int i=0; i<(this->nu); i++){
-      for(int j=0; j<(this->numb_classes*this->numb_classes); j++){
-          float resize=exp((sqrt(this->V[j+i*this->numb_classes*this->numb_classes]))*0.693147181)-1;
-          OutV[j+i*this->numb_classes*this->numb_classes]=(resize*(CurrSizes->rescale_max[i]-CurrSizes->rescale_min[i]));
-          cout << (j+i*this->numb_classes*this->numb_classes) << " value is : " << OutV[j+i*this->numb_classes*this->numb_classes] << " resize :"<< resize<< " max:"<<CurrSizes->rescale_max[i]<<" min"<<CurrSizes->rescale_min[i]<<" diff: "<<CurrSizes->rescale_max[i]-CurrSizes->rescale_min[i]<<endl;
+      for(int j=0; j<(this->numberOfClasses*this->numberOfClasses); j++){
+          float resize=exp((sqrt(this->V[j+i*this->numberOfClasses*this->numberOfClasses]))*0.693147181)-1;
+          OutV[j+i*this->numberOfClasses*this->numberOfClasses]=(resize*(CurrSizes->rescale_max[i]-CurrSizes->rescale_min[i]));
+          cout << (j+i*this->numberOfClasses*this->numberOfClasses) << " value is : " << OutV[j+i*this->numberOfClasses*this->numberOfClasses] << " resize :"<< resize<< " max:"<<CurrSizes->rescale_max[i]<<" min"<<CurrSizes->rescale_min[i]<<" diff: "<<CurrSizes->rescale_max[i]-CurrSizes->rescale_min[i]<<endl;
         }
     }
   return OutV;
@@ -758,8 +1127,8 @@ float * seg_EM_old::GetSTD()
 
 float * seg_EM_old::GetSTD()
 {
-    float * OutV= new float [this->nu *this->numb_classes*this->numb_classes];
-    for(int i=0; i<(this->numb_classes); i++){
+    float * OutV= new float [this->nu *this->numberOfClasses*this->numberOfClasses];
+    for(int i=0; i<(this->numberOfClasses); i++){
         for(int j=0; j<(this->nu*this->nu); j++){
             float resize=exp((sqrt(this->V[j+i*this->nu*this->nu]))*0.693147181)-1;
             int x = j / this->nu;//row
@@ -783,10 +1152,10 @@ nifti_image * seg_EM_old::GetResult()
     nifti_image * Result=NULL;
 
     if(this->maskImage_status){
-        Result = Copy_Expec_to_Result_mask(this->Expec,this->Short_2_Long_Indices,this->inputImage,(char*)this->FilenameOut.c_str(),this->CurrSizes);
+        Result = Copy_Expec_to_Result_mask(this->Expec,this->S2L,this->InputImage,(char*)this->FilenameOut.c_str(),this->CurrSizes);
     }
     else{
-        Result = Copy_Expec_to_Result(this->Expec,this->inputImage,(char*)this->FilenameOut.c_str(),this->CurrSizes);
+        Result = Copy_Expec_to_Result(this->Expec,this->InputImage,(char*)this->FilenameOut.c_str(),this->CurrSizes);
     }
     return Result;
 
@@ -798,26 +1167,15 @@ nifti_image * seg_EM_old::GetResultNew(char * fileName)
     nifti_image * Result=NULL;
 
     if(this->maskImage_status){
-        Result = Copy_Correct_Expec_to_Result_mask(this->Expec,this->Outlierness,this->Short_2_Long_Indices,this->inputImage,fileName,this->CurrSizes);
+        Result = Copy_Correct_Expec_to_Result_mask(this->Expec,this->Outlierness,this->S2L,this->InputImage,fileName,this->CurrSizes);
     }
     else{
-        Result = Copy_Expec_to_Result(this->Expec,this->inputImage,(char*)this->FilenameOut.c_str(),this->CurrSizes);
+        Result = Copy_Expec_to_Result(this->Expec,this->InputImage,(char*)this->FilenameOut.c_str(),this->CurrSizes);
     }
     return Result;
 
 }
 
-/* \/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/ */
-
-nifti_image * seg_EM_old::GetResultNeonate()
-{
-    nifti_image * Result=NULL;
-
-    Result = Copy_Expec_to_Result_Neonate_mask(this->Expec,this->Short_2_Long_Indices,this->Long_2_Short_Indices,this->inputImage,this->BiasField,this->M,(char*)this->FilenameOut.c_str(),this->CurrSizes);
-
-    return Result;
-
-}
 
 /* \/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/ */
 
@@ -826,10 +1184,10 @@ nifti_image * seg_EM_old::GetBiasCorrected(char * filename)
     nifti_image * Result=NULL;
 
     if(this->maskImage_status){
-        Result = Get_Bias_Corrected_mask(this->BiasField_coeficients,this->inputImage,filename,this->CurrSizes,this->BiasField_order);
+        Result = Get_Bias_Corrected_mask(this->BiasField_coeficients,this->InputImage,filename,this->CurrSizes,this->BiasField_order);
     }
     else{
-        Result = Get_Bias_Corrected(this->BiasField,this->inputImage,filename,this->CurrSizes);
+        Result = Get_Bias_Corrected(this->BiasField,this->InputImage,filename,this->CurrSizes);
     }
     return Result;
 
@@ -839,7 +1197,7 @@ nifti_image * seg_EM_old::GetBiasCorrected(char * filename)
 
 nifti_image * seg_EM_old::GetOutlierness(char * filename)
 {
-    nifti_image * Result = nifti_copy_nim_info(this->inputImage);
+    nifti_image * Result = nifti_copy_nim_info(this->InputImage);
     Result->dim[0]=3;
     Result->dim[4]=1;
     Result->dim[5]=1;
@@ -848,8 +1206,8 @@ nifti_image * seg_EM_old::GetOutlierness(char * filename)
     nifti_set_filenames(Result,filename,0,0);
     nifti_update_dims_from_array(Result);
     nifti_datatype_sizes(Result->datatype,&Result->nbyper,&Result->swapsize);
-    Result->data = (void *) calloc(Result->nvox, sizeof(SegPrecisionTYPE));
-    SegPrecisionTYPE * Resultdata = static_cast<SegPrecisionTYPE *>(Result->data);
+    Result->data = (void *) calloc(Result->nvox, sizeof(segPrecisionTYPE));
+    segPrecisionTYPE * Resultdata = static_cast<segPrecisionTYPE *>(Result->data);
     for(unsigned int i=0; i<Result->nvox; i++){Resultdata[i]=0;}
 
 
@@ -858,10 +1216,10 @@ nifti_image * seg_EM_old::GetOutlierness(char * filename)
         for(int i=0; i<CurrSizes->numelmasked; i++){
             float currsum=0;
             for(int currclass=0; currclass<CurrSizes->numclass;currclass++){
-                //currsum+=this->Outlierness[i+(currclass)*CurrSizes->numelmasked]*Expec[i+(currclass)*CurrSizes->numelmasked];
+                //currsum+=this->Outlierness[i+(currclass)*CurrSizes->numElementsMasked]*Expec[i+(currclass)*CurrSizes->numElementsMasked];
                 currsum+= this->Outlierness[i+(currclass)*CurrSizes->numelmasked] * this->Expec[i+(currclass)*CurrSizes->numelmasked];
             }
-            Resultdata[Short_2_Long_Indices[i]]=1-currsum;
+            Resultdata[S2L[i]]=1-currsum;
         }
         //cout << "I m in GetOutlierness with mask code..."<< endl;
     }
@@ -899,10 +1257,10 @@ int *  seg_EM_old::Run_EM()
         Create_CurrSizes();
     }
 
-    Normalize_Image_and_Priors();
+    InitializeAndNormalizeImageAndPriors();
     Allocate_and_Initialize();
     if((int)(this->verbose_level)>(int)(0)){
-        cout << "Number of voxels inside the mask = " << this->numelmasked << endl;
+        cout << "Number of voxels inside the mask = " << this->numElementsMasked << endl;
     }
     //**************
     // EM Algorithm
@@ -920,23 +1278,48 @@ int *  seg_EM_old::Run_EM()
 
         // Iterative Components - EM, MRF, Bias Correction
 
-        //Maximization
-        Maximization();
+        //RunMaximization
+        /*
+         * No Difference
+         * */
+        this->RunMaximization();
         //Expectation
-        Expectation();
+        /*
+         * Very Small Difference
+         * MAX(ABS(X)): 0.000378907
+         * SUM(ABS(X)): 16.314
+         * SUM(X): 5.35529e-05
+         * */
+        this->RunExpectation();
         //MRF
-        UpdateMRF();
+        this->RunMRF();
         //Bias Correction
-        UpdateBiasField();
+        this->RunBiasField();
         //Update Weight
-        UpdatePriorWeight();
+        this->RunPriorRelaxation();
 
         // Print LogLik depending on the verbose level
-//        if(this->verbose_level>0 && this->iter>0){
-//            printloglik(iter,this->loglik,this->oldloglik);
-//        }
+        if(this->verbose_level>0 && this->iter>0)
+        {
+            if(iter>0)
+            {
+                if ((this->loglik-this->oldloglik)/fabs(this->oldloglik)>0 && (this->loglik-this->oldloglik)/fabs(this->oldloglik)<100)
+                {
+                    cout<< "Loglik = " << setprecision(7)<<this->loglik <<
+                        " : Ratio = " << (this->loglik-this->oldloglik)/fabs(this->oldloglik) << endl;
+                }
+                else
+                {
+                    cout<< "Loglik = " << setprecision(7)<<this->loglik << endl;
+                }
+            }
+            else
+            {
+                cout<< "Initial Loglik = " << setprecision(7) <<this->loglik << endl;
+            }
+        }
         // Preform Exit
-        if((((this->loglik-this->oldloglik)/fabs(this->oldloglik))<(SegPrecisionTYPE)(0.0005) && this->iter > this->checkpoint_iter) || iter>=this->maxIteration || (isinf(this->loglik) && this->iter>3)){
+        if((((this->loglik-this->oldloglik)/fabs(this->oldloglik))<(segPrecisionTYPE)(0.0005) && this->iter > this->checkpoint_iter) || iter>=this->maxIteration || (isinf(this->loglik) && this->iter>3)){
             out=false;
         }
         this->ratio=((this->loglik-this->oldloglik)/fabs(this->oldloglik));

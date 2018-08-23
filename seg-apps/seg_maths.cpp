@@ -2018,7 +2018,7 @@ int main(int argc, char **argv)
 //                    }
 ////                    double regul=1.0e-15f;
 
-//                    CurrSize->numel=(long)(CurrSize->xsize*CurrSize->ysize*CurrSize->zsize);
+//                    CurrSize->numElements=(long)(CurrSize->xsize*CurrSize->ysize*CurrSize->zsize);
 //                    for(long indexZ=(zincrement-1); indexZ<(CurrSize->zsize-(zincrement-1)); indexZ++){
 //                        for(long indexY=(yincrement-1); indexY<(CurrSize->ysize-(yincrement-1)); indexY++){
 //                            for(long indexX=(xincrement-1); indexX<(CurrSize->xsize-(xincrement-1)); indexX++){

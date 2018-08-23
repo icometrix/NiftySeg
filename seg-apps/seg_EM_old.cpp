@@ -44,7 +44,7 @@ void Usage(char *exec)
     return;
 }
 
-void Merge_Priors(nifti_image * Priors, nifti_image ** Priors_temp, SEG_PARAM * segment_param)
+void Merge_Priors(nifti_image * Priors, nifti_image ** Priors_temp, seg_EM_Params * segment_param)
 {
     long img_size= Priors->nx * Priors->ny * Priors->nz;
     SegPrecisionTYPE * Prior_ptr_start = static_cast<SegPrecisionTYPE *>(Priors->data);
@@ -151,9 +151,9 @@ int main(int argc, char **argv)
             return 0;
         }
 
-        SEG_PARAM * segment_param = new SEG_PARAM [1]();
+        seg_EM_Params * segment_param = new seg_EM_Params [1]();
 
-        // Set defaults (SEG_PARAM constructor sets everything to zero)
+        // Set defaults (seg_EM_Params constructor sets everything to zero)
         segment_param->MRF_strength=0.4f;
         segment_param->bias_order=3;
         segment_param->flag_Bias=1;

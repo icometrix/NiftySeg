@@ -1,18 +1,15 @@
 #pragma once
 
-#include "_seg_common_old.h"
-#include "_seg_tools_old.h"
-#include "_seg_MRF_old.h"
-#include "_seg_FMM_old.h"
-#include "_seg_Topo_old.h"
-
-
+#include "_seg_common.h"
+#include "_seg_tools.h"
+#include "_seg_old_stuff.h"
+#include "_seg_FMM.h"
 
 class seg_EM_old
 {
 protected:
 
-    nifti_image*    inputImage; // pointer to external
+    nifti_image*    InputImage; // pointer to external
     bool    inputImage_status;
     string  FilenameOut;
     int     verbose_level;
@@ -27,7 +24,7 @@ protected:
     float     dx;
     float     dy;
     float     dz;
-    int     numel;
+    int     numElements;
     int     iter;
     int checkpoint_iter;
     float ratio;
@@ -40,9 +37,9 @@ protected:
     float*  V;
     float*  Expec;
     float*  ShortPrior;
-    int*    Short_2_Long_Indices;
-    int*    Long_2_Short_Indices;
-    int     numb_classes;
+    int*    S2L;
+    int*    L2S;
+    int     numberOfClasses;
     double   loglik;
     double   oldloglik;
     int     maxIteration;
@@ -52,14 +49,14 @@ protected:
     // Mask
     nifti_image*    Mask; // pointer to external
     bool    maskImage_status;
-    int     numelmasked;
+    int     numElementsMasked;
 
     // Priors Specific
     bool    Priors_status;
     nifti_image*  Priors;
 
     // MRF Specific
-    bool    MRF_status;
+    bool    mrfStatus;
     float   MRF_strength;
     float*  MRF;
     float*  MRF_beta;
@@ -67,9 +64,9 @@ protected:
 
     float * Outlierness;
     float * OutliernessUSE;
-    bool OutliernessFlag;
-    float OutliernessThreshold;
-    float Outlierness_ratio;
+    bool outliernessStatus;
+    float outliernessThreshold;
+    float outliernessRatio;
 
     // BiasField Specific
     bool    BiasField_status;
@@ -86,7 +83,7 @@ protected:
     bool Relax_status;
     float  Relax_factor;
     float RelaxGaussKernelSize;
-    bool MAP_status;
+    bool mapStatus;
     float* MAP_M;
     float* MAP_V;
 
@@ -94,13 +91,13 @@ protected:
     int Create_diagonal_MRF_transitionMatrix();
     int Normalize_T1();
     int Create_CurrSizes();
-    int Maximization();
-    int Expectation();
-    int UpdateMRF();
-    int UpdatePriorWeight();
-    int UpdateBiasField();
+    void RunMaximization();
+    void RunExpectation();
+    int RunMRF();
+    int RunPriorRelaxation();
+    int RunBiasField();
     int UpdateOutlierness();
-    int Normalize_Image_and_Priors();
+    int InitializeAndNormalizeImageAndPriors();
     int Allocate_and_Initialize();
     int Intensity_Based_Inisitalization_of_Means();
 

@@ -267,7 +267,7 @@ typedef struct seg_EM_Params
              << "PARAMS: filename_out: " << (char *) ( ( filename_out ) ? filename_out : "0" ) << endl
              << "PARAMS: flag_mask: " << flag_mask << endl
              << "PARAMS: filename_mask: " << (char *) ( ( filename_mask ) ? filename_mask : "0" ) << endl
-             << "PARAMS: numb_classes: " << numb_classes << endl
+             << "PARAMS: numberOfClasses: " << numb_classes << endl
              << "PARAMS: flag_manual_priors: " << flag_manual_priors << endl;
 
         if ( filename_priors )
@@ -283,7 +283,7 @@ typedef struct seg_EM_Params
             sout << "PARAMS: filename_priors: 0" << endl;
 
         sout << "PARAMS: flag_Outlierness: " << flag_Outlierness << endl
-             << "PARAMS: OutliernessThreshold: " << OutliernessThreshold << endl
+             << "PARAMS: outliernessThreshold: " << OutliernessThreshold << endl
              << "PARAMS: OutliernessRatio: " << OutliernessRatio << endl
              << "PARAMS: flag_out_outlier: " << flag_out_outlier << endl
              << "PARAMS: filename_out_outlier: " << (char *) ( ( filename_out_outlier ) ? filename_out_outlier : "0" ) << endl

@@ -109,7 +109,7 @@ nifti_image * LoAd_Segment(nifti_image * T1, nifti_image * Mask, nifti_image * P
         if(MRFupdate)MRFregularization_mask(Expec,G,H,MRF_Beta,MRF,ShortPrior,Long_2_Short_Indices,Short_2_Long_Indices,CurrSizes,segment_param->flag_MRF,segment_param->verbose_level);
         // Print LogLik depending on the verbose level
         if(segment_param->verbose_level>0)printloglik(iter,flags->loglik,flags->oldloglik);
-        //Maximization
+        //RunMaximization
         calcM_mask_LoAd(T1,Expec,BiasField,Short_2_Long_Indices,M,V,CurrSizes,segment_param->verbose_level,flags->pv_modeling_on);
 
         // Preform Segmentation Refinement Steps or Exit
@@ -1377,7 +1377,7 @@ int calcE_mask_aprox(nifti_image * T1,
                       ImageSize * CurrSizes,
                       int verbose)
 {
-    int numel_masked=CurrSizes->numelmasked;
+    int numel_masked=CurrSizes->numElementsMasked;
     int num_class=CurrSizes->numclass;
 
     SegPrecisionTYPE * IterPrior_PTR= (SegPrecisionTYPE *) IterPrior;
@@ -1456,7 +1456,7 @@ int calcE_mask_aprox(nifti_image * T1,
     float logliktmp=0.0f;
     for (int i=0; i<numel_masked;i++, Expec_PTR++, IterPrior_PTR++) {
         for(long Multispec=0; Multispec<CurrSizes->usize; Multispec++) {
-            T1_Bias_corr[Multispec]=(BiasField!=NULL)?(T1_PTR[S2L[i]+Multispec*CurrSizes->numel] + BiasField[i+Multispec*numel_masked]):(T1_PTR[S2L[i]+Multispec*CurrSizes->numel]);
+            T1_Bias_corr[Multispec]=(BiasField!=NULL)?(T1_PTR[S2L[i]+Multispec*CurrSizes->numElements] + BiasField[i+Multispec*numel_masked]):(T1_PTR[S2L[i]+Multispec*CurrSizes->numElements]);
         }
         SumExpec=0.0f;
         expectmp=0.0f;
@@ -1510,7 +1510,7 @@ int calcE_aprox(nifti_image * T1,
                  ImageSize * CurrSizes,
                  int verbose)
 {
-    int numel=CurrSizes->numel;
+    int numElements=CurrSizes->numElements;
     int num_class=CurrSizes->numclass;
 
     SegPrecisionTYPE * IterPrior_PTR= (SegPrecisionTYPE *) IterPrior;
@@ -1530,7 +1530,7 @@ int calcE_aprox(nifti_image * T1,
     int Expec_offset [max_numbclass]={0};
 
     for (int cl=0; cl<num_class; cl++) {
-        Expec_offset[cl]=(int) cl*numel;
+        Expec_offset[cl]=(int) cl*numElements;
         if(CurrSizes->usize>1){
             matrix <double> Vmat(CurrSizes->usize,CurrSizes->usize);
 
@@ -1587,9 +1587,9 @@ int calcE_aprox(nifti_image * T1,
     float logliktmp=0.0f;
     IterPrior_PTR= (SegPrecisionTYPE *) IterPrior;
     Expec_PTR= (SegPrecisionTYPE *) Expec;
-    for (int i=0; i<numel;i++, Expec_PTR++, IterPrior_PTR++) {
+    for (int i=0; i<numElements;i++, Expec_PTR++, IterPrior_PTR++) {
         for(long Multispec=0; Multispec<CurrSizes->usize; Multispec++) {
-            T1_Bias_corr[Multispec]=(BiasField!=NULL)?(T1_PTR[i+Multispec*numel] + BiasField[i+Multispec*numel]):(T1_PTR[i+Multispec*numel]);
+            T1_Bias_corr[Multispec]=(BiasField!=NULL)?(T1_PTR[i+Multispec*numElements] + BiasField[i+Multispec*numElements]):(T1_PTR[i+Multispec*numElements]);
         }
         SumExpec=0.0f;
         expectmp=0.0f;
@@ -4839,7 +4839,7 @@ void BiasCorrection_mask(segPrecisionTYPE * BiasField,
         }
 
 //#ifdef _OPENMP
-//#pragma omp parallel shared(Tempvar,PowerOrder,CurrSizes,B,Long_2_Short_Indices) private(UsedBasisFunctions,maxiz,maxiy,maxix, not_point_five_times_dims_x, not_point_five_times_dims_y, not_point_five_times_dims_z,reduxfactor,inv_not_point_five_times_dims_x, inv_not_point_five_times_dims_y, inv_not_point_five_times_dims_z)
+//#pragma omp parallel shared(Tempvar,PowerOrder,CurrSizes,B,L2S) private(UsedBasisFunctions,maxiz,maxiy,maxix, not_point_five_times_dims_x, not_point_five_times_dims_y, not_point_five_times_dims_z,reduxfactor,inv_not_point_five_times_dims_x, inv_not_point_five_times_dims_y, inv_not_point_five_times_dims_z)
 //#endif
         for(int bfindex=0; bfindex<UsedBasisFunctions; bfindex++)
         {

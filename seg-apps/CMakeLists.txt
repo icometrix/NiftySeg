@@ -14,7 +14,7 @@
     INSTALL_TARGETS(/bin seg_EM)
 
     ADD_EXECUTABLE(seg_EM_old seg_EM_old.cpp)
-        TARGET_LINK_LIBRARIES(seg_EM_old _seg_EM_old _seg_MRF_old _seg_BiasCorrection_old _seg_tools_old _seg_Topo_old _seg_FMM_old _seg_nifti ${ZLIB})
+        TARGET_LINK_LIBRARIES(seg_EM_old _seg_EM_old _seg_old_stuff _seg_tools _seg_FMM _seg_nifti ${ZLIB})
     INSTALL_TARGETS(/bin seg_EM_old)
 
     ADD_EXECUTABLE(seg_LabFusion seg_LabFusion.cpp)

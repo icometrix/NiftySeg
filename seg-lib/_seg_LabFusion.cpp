@@ -1395,7 +1395,7 @@ int seg_LabFusion::EstimateInitialDensity() {
             for (int humanRater = 0; humanRater < this->numb_classif; humanRater++) {
                 propcount[inputhumanRaterptr[i + this->numel * humanRater]]++;
 
-                //cout << (float)inputhumanRaterptr[i+this->numel*humanRater];
+                //cout << (float)inputhumanRaterptr[i+this->numElements*humanRater];
             }
             //cout << "\n";
         }
@@ -2131,7 +2131,7 @@ int  seg_LabFusion::Run_STAPLE_or_STEPS()
         UpdateMRF();
         //Update Density
         UpdateDensity();
-        //Expectation & Maximization
+        //Expectation & RunMaximization
         STAPLE_STEPS_Multiclass_Expectation_Maximization();
         // Print Trace depending on the verbose level
         if(this->verbose_level>0)

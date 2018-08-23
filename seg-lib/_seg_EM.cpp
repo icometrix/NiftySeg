@@ -1059,7 +1059,7 @@ segPrecisionTYPE * seg_EM::GetMeans()
     {
         for(int i=0; i<(this->nu); i++)
         {
-            //cout << "M["<<j<<"]="<<this->M[j+i*this->numb_classes]<<endl;
+            //cout << "M["<<j<<"]="<<this->M[j+i*this->numberOfClasses]<<endl;
             segPrecisionTYPE resize=exp((this->M[index++])*0.693147181)-1;
             OutM[j+i*this->numberOfClasses]=(resize*(this->rescale_max[i]-this->rescale_min[i])+this->rescale_min[i]);
         }
@@ -1083,7 +1083,7 @@ segPrecisionTYPE * seg_EM::GetMeansLogTransformed()
     {
         for(int i=0; i<(this->nu); i++)
         {
-            //cout << "M["<<j<<"]="<<this->M[j+i*this->numb_classes]<<endl;
+            //cout << "M["<<j<<"]="<<this->M[j+i*this->numberOfClasses]<<endl;
             OutM[j+i*this->numberOfClasses]=(this->M[index++]);
         }
     }
@@ -1408,7 +1408,7 @@ void  seg_EM::Run_EM()
 
         // Iterative Components - EM, MRF, Bias Correction
 
-        //Maximization
+        //RunMaximization
         this->RunMaximization();
         //Expectation
         this->RunExpectation();
@@ -3037,3 +3037,4 @@ void seg_EM::RunPriorRelaxation()
     return;
 }
 #endif
+
