@@ -366,7 +366,11 @@ void seg_EM_old::SetMRF(segPrecisionTYPE strength) {
 }
 
 
-void seg_EM_old::SetRelaxation(float relax_factor, float relax_gauss_kernel) {
+/// @brief Sets the flag for using the Derrichlet prior, the associated relaxation factor and the Gaussian standard deviation of the regularisation, as deffined in the AdaPT paper (Cardoso et al. Neuroimage 2012).
+/// @param relax_factor The Derrichlet prior relaxation factor
+/// @param relax_gauss_kernel The Gaussian standard deviation of the regularisation
+///
+void seg_EM_old::SetRelaxation(segPrecisionTYPE relax_factor, segPrecisionTYPE relax_gauss_kernel) {
     this->relaxStatus = true;
     this->relaxFactor = relax_factor;
     this->relaxGaussKernelSize = relax_gauss_kernel;
@@ -374,20 +378,422 @@ void seg_EM_old::SetRelaxation(float relax_factor, float relax_gauss_kernel) {
 }
 
 /* \/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/ */
-
-void seg_EM_old::SetBiasField(int powerOrder, float ratiothresh) {
-    this->biasFieldStatus = true;
-    this->biasFieldOrder = powerOrder;
-    this->biasFieldCoeficients = new segPrecisionTYPE[((powerOrder + 1) * (powerOrder + 2) / 2 * (powerOrder + 3) / 3) *
-                                                      this->nu * this->nt]();
-    this->biasFieldRatio = ratiothresh;
-    if (this->maskImageStatus) {
-        this->BiasField = new segPrecisionTYPE[this->numElementsMasked * this->nu * this->nt]();
+/// @brief Sets the flag for using the Bias field correction, the associated relaxation factor and the Gaussian standard deviation of the regularisation, as defined in the AdaPT paper (Cardoso et al. Neuroimage 2012).
+/// @param _BiasFieldOrder The order of the polynomial bias field
+/// @param _BiasFieldRatio The convergence ratio below which the bias field correction is used.
+///
+/// If the _BiasFieldRatio value is large (>0.1), the bias field can "go" in the wrong direction.
+///
+void seg_EM_old::SetBiasField(int _BiasFieldOrder, segPrecisionTYPE _BiasFieldRatio) {
+    if (_BiasFieldOrder <= 0) {
+        this->biasFieldStatus = true;
+        this->biasFieldOrder = 0;
+        this->biasFieldRatio = 0.0f;
     } else {
-        this->BiasField = new segPrecisionTYPE[this->numElements * this->nu * this->nt]();
+        this->biasFieldStatus = true;
+        this->biasFieldOrder = _BiasFieldOrder;
+        this->biasFieldCoeficients = new segPrecisionTYPE[
+        ((int) (((float) (this->biasFieldOrder) + 1.0f) * ((float) (this->biasFieldOrder) + 2.0f) / 2.0f *
+                ((float) (this->biasFieldOrder) + 3.0f) / 3.0f)) * this->nu * this->nt]();
+        this->biasFieldRatio = _BiasFieldRatio;
+        if (this->maskImageStatus > 0) {
+            this->BiasField = new segPrecisionTYPE[this->numElementsMasked * this->nu * this->nt]();
+        } else {
+            this->BiasField = new segPrecisionTYPE[this->numElements * this->nu * this->nt]();
+        }
     }
     return;
 }
+
+/* \/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/ */
+/// @brief Sets the flag for using the Outlier detection, the associated relaxation factor and the Gaussian standard deviation of the regularisation, as defined in the AdaPT paper (Cardoso et al. Neuroimage 2012).
+/// @param _OutliernessThreshold The Mahalanobis distance threshold for classifying an observation as an outlier.
+/// @param _OutliernessRatio The convergence ration below which the outlier detection is used.
+///
+/// If the _OutliernessRatio value is large (>0.1), the outlierness can "go" in the wrong direction.
+///
+void seg_EM_old::SetOutlierness(segPrecisionTYPE _OutliernessThreshold, segPrecisionTYPE _OutliernessRatio) {
+
+    this->outliernessStatus = true;
+    this->outliernessThreshold = _OutliernessThreshold;
+    this->outliernessRatio = _OutliernessRatio;
+    return;
+}
+
+
+/* \/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/ */
+/// @brief Initialises an allocates all the vectors.
+///
+/// If priors are not used, it initialises the means and variances using the intensity distributions. It also allocates the this->ShortPrior and this->Outlierness vectors when not previously deffined, even though they are all equal to 1/K and 1 respectively (thus not affecting the convergence);
+///
+void seg_EM_old::InitializeAndAllocate() {
+
+
+    if (this->priorsStatus) {
+        register long numel = (int) (this->Mask->nx * this->Mask->ny * this->Mask->nz);
+        register long numel_masked = 0;
+
+        bool *Maskptrtmp = static_cast<bool *> (this->Mask->data);
+        for (long i = 0; i < numel; i++, Maskptrtmp++) {
+            *Maskptrtmp ? numel_masked++ : 0;
+        }
+        int pluspv = (int) (this->pvModelStatus) * 2;
+
+        this->Expec = new segPrecisionTYPE[numel_masked * (this->numberOfClasses + pluspv)]();
+        segPrecisionTYPE *tempExpec = (segPrecisionTYPE *) Expec;
+        this->ShortPrior = new segPrecisionTYPE[numel_masked * (this->numberOfClasses + pluspv)]();
+        segPrecisionTYPE *tempShortPrior = (segPrecisionTYPE *) ShortPrior;
+        segPrecisionTYPE *PriorPTR = static_cast<segPrecisionTYPE *>(this->Priors->data);
+        for (long cl = 0; cl < this->numberOfClasses; cl++) {
+            Maskptrtmp = static_cast<bool *> (this->Mask->data);;
+            for (int i = numel; i--; Maskptrtmp++, PriorPTR++) {
+                if (*Maskptrtmp) {
+                    *tempExpec = *PriorPTR;
+                    *tempShortPrior = *PriorPTR;
+                    tempExpec++;
+                    tempShortPrior++;
+                }
+            }
+        }
+    } else {
+        this->InitializeMeansUsingIntensity();
+        int tmpnumb_elem = 0;
+        if (this->maskImageStatus > 0) {
+            tmpnumb_elem = (this->numElementsMasked * (this->numberOfClasses + (int) (this->pvModelStatus) * 2));
+        } else {
+            tmpnumb_elem = (numElements * (this->numberOfClasses + (int) (this->pvModelStatus) * 2));
+        }
+
+        segPrecisionTYPE tmpnumb_clas = ((this->numberOfClasses + (int) (this->pvModelStatus) * 2));
+        this->Expec = new segPrecisionTYPE[tmpnumb_elem]();
+        this->ShortPrior = new segPrecisionTYPE[tmpnumb_elem]();
+        for (int i = 0; i < tmpnumb_elem; i++) {
+            this->Expec[i] = 1.0 / tmpnumb_clas;
+            this->ShortPrior[i] = 1.0 / tmpnumb_clas;
+        }
+        this->RunExpectation();
+
+    }
+
+    for (int cl = 0; cl < this->numberOfClasses; cl++) {
+        if (this->outliernessStatus) {
+            int tmpnumb_elem = 0;
+            if (this->maskImageStatus > 0) {
+                tmpnumb_elem = (this->numElementsMasked * (this->numberOfClasses + (int) (this->pvModelStatus) * 2));
+            } else {
+                tmpnumb_elem = (numElements * (this->numberOfClasses + (int) (this->pvModelStatus) * 2));
+            }
+            this->OutliernessUSE = NULL;
+            this->Outlierness = new segPrecisionTYPE[tmpnumb_elem]();
+            for (int i = 0; i < tmpnumb_elem; i++) {
+                this->Outlierness[i] = 1.0;
+            }
+        }
+    }
+
+    return;
+
+}
+
+/* \/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/ */
+/// @brief Initialises and normalises the image and the Population Priors. The MAP priors are also normalised using the same transformation.
+///
+/// If the mask is not used, it also creates a binary mask image which is 1 everywhere. This mask has to be created before using this->CreateShort2LongMatrix() and this->CreateLong2ShortMatrix(), as they will use the this->Mask to estimate the L2S and S2L mappings.
+
+void seg_EM_old::InitializeAndNormalizeImageAndPriors() {
+    if (this->maskImageStatus == 0) {
+        this->maskImageStatus = 2;
+        this->Mask = nifti_copy_nim_info(this->InputImage);
+        Mask->dim[0] = 3;
+        Mask->dim[4] = 1;
+        Mask->dim[5] = 1;
+        Mask->datatype = DT_BINARY;
+        Mask->cal_max = 1;
+        nifti_set_filenames(Mask, (const char *) "tmpInternalMask.nii.gz", 0, 0);
+        nifti_update_dims_from_array(Mask);
+        nifti_datatype_sizes(Mask->datatype, &Mask->nbyper, &Mask->swapsize);
+        Mask->data = (void *) calloc(Mask->nvox, sizeof(bool));
+        bool *Maskdata = static_cast<bool *>(Mask->data);
+        for (unsigned int i = 0; i < Mask->nvox; i++) {
+            Maskdata[i] = 1;
+        }
+        this->numElementsMasked = this->numElements;
+    }
+
+    this->InitializeAndNormalizeNaNPriors();
+    this->InitializeAndNormalizeImage();
+
+    this->CreateShort2LongMatrix();
+    this->CreateLong2ShortMatrix();
+
+
+    if (this->mapStatus) {
+        for (int i = 0; i < this->numberOfClasses; i++) {
+            this->MAP_M[i] =
+                    logf(((this->MAP_M[i] - this->rescale_min[0]) / (this->rescale_max[0] - this->rescale_min[0])) +
+                         1) / 0.693147181;;
+            if (this->verbose_level > 0) {
+                cout << "MAP_M[" << i << "] = " << this->MAP_M[i] << endl;
+            }
+            this->M[i] = this->MAP_M[i];
+            this->V[i] = 1.0 / this->numberOfClasses;
+        }
+    }
+
+    return;
+
+}
+
+
+/* \/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/ */
+/// @brief Initialises, normalises and log transforms (for the bias field computation) the image itself.
+///
+/// The log transformation is used to make the bias field aditive.
+
+void seg_EM_old::InitializeAndNormalizeImage() {
+
+    if (this->verbose_level > 0) {
+        cout << "Normalizing Input Image" << endl;
+    }
+    int numel = (int) (this->InputImage->nx * this->InputImage->ny * this->InputImage->nz);
+
+
+    seg_changeDatatype<segPrecisionTYPE>(this->InputImage);
+
+
+    for (long udir = 0; udir < this->nu; udir++) // Per Multispectral Image
+    {
+        bool *brainmaskptr = static_cast<bool *> (this->Mask->data);
+        segPrecisionTYPE *Inputptrtmp = static_cast<segPrecisionTYPE *>(this->InputImage->data);
+        segPrecisionTYPE *Inputptr = &Inputptrtmp[numel * udir];
+
+        segPrecisionTYPE tempmax = -(1.0e32);
+        segPrecisionTYPE tempmin = 1.0e32;
+
+        for (int i = 0; i < numel; i++) {
+            if (brainmaskptr[i]) {
+                if (Inputptr[i] < tempmin) {
+                    tempmin = Inputptr[i];
+                }
+                if (Inputptr[i] > tempmax) {
+                    tempmax = Inputptr[i];
+                }
+            }
+        }
+        this->rescale_max[udir] = tempmax;
+        this->rescale_min[udir] = tempmin;
+        if (this->verbose_level > 0) {
+            cout << "Normalization[" << udir << "] = [" << tempmin << "," << tempmax << "]" << endl;
+        }
+        Inputptr = &Inputptrtmp[numel * udir];
+        brainmaskptr = static_cast<bool *> (Mask->data);
+        bool nanflag = false;
+        for (int i = 0; i < numel; i++) {
+            Inputptr[i] = logf((((Inputptr[i]) - tempmin) / (tempmax - tempmin)) + 1) / 0.693147181;
+            if (Inputptr[i] != Inputptr[i]) {
+                if (nanflag == 0) {
+                    cout << "Warning: The image at timepoint=" << udir << " has NaNs. This can cause problems." << endl;
+                    nanflag = true;
+                }
+            }
+        }
+    }
+    return;
+}
+
+
+/* \/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/ */
+/// @brief Initialises, normalises and checks for NaN's in the priors.
+///
+/// It also does an empirical check of the priors.
+/// If the prior sum (over the classes) per voxel is <0 or >1000, then something is probably wrong or the user is using it wrong.
+/// If this happens, output an Error.
+///
+void seg_EM_old::InitializeAndNormalizeNaNPriors() {
+    if (this->priorsStatus) {
+        register int numel = Mask->nx * Mask->ny * Mask->nz;
+        register int ups = 0;
+        register int good = 0;
+        if (this->verbose_level > 0) {
+            cout << "Normalizing Priors" << endl;
+        }
+        if (Mask->datatype == DT_BINARY) {
+            if (this->InputImage->datatype != NIFTI_TYPE_FLOAT32 || this->InputImage->datatype != NIFTI_TYPE_FLOAT64) {
+                segPrecisionTYPE *priorsptr = static_cast<segPrecisionTYPE *>(this->Priors->data);
+                bool *brainmaskptr = static_cast<bool *> (this->Mask->data);
+
+                for (int i = 0; i < numel; i++) {
+                    if (brainmaskptr[i]) {
+                        segPrecisionTYPE tempsum = 0;
+                        for (int j = 0; j < this->Priors->nt; j++) {
+                            int tempind = i + numel * j;
+                            if (priorsptr[tempind] < 0.0 || priorsptr[tempind] != priorsptr[tempind] ||
+                                priorsptr[tempind] > 1000) {
+                                priorsptr[tempind] = 0.0;
+                            }
+                            tempsum += priorsptr[tempind];
+                        }
+                        if (tempsum > 0 && tempsum < 1000) {
+                            for (int j = 0; j < Priors->nt; j++) {
+                                int tempind = i + numel * j;
+                                priorsptr[tempind] = priorsptr[tempind] / tempsum;
+                            }
+                            good++;
+                        } else {
+                            for (int j = 0; j < Priors->nt; j++) {
+                                int tempind = i + numel * j;
+                                priorsptr[tempind] = 1.0f / (Priors->nt);
+                            }
+                            ups++;
+
+                        }
+                    } else {
+                        for (int j = 0; j < Priors->nt; j++) {
+                            int tempind = i + numel * j;
+                            priorsptr[tempind] = 0;
+                        }
+                    }
+                }
+            } else {
+
+                printf("Error:\tNormalize_NaN_Priors\tWrong Image datatype\n");
+
+            }
+        } else {
+
+            printf("Error:\tNormalize_NaN_Priors\tWrong mask datatype\n");
+
+        }
+
+        if (this->verbose_level > 0) {
+            cout << "Priors: " << good << " good voxels and " << ups << " bad voxels" << endl;
+            flush(cout);
+        }
+    }
+    return;
+}
+
+/* \/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/ */
+/// @brief Initialises the mean and variance parameters using the image intensity.
+///
+/// Sets the initial value of the class means by first estimating the image histogram, and the partitionin the histogram using percentiles.
+/// It uses only the first image chanel if the input image is multimodal.
+/// It also sets the variance to the overall variance devided by K.
+void seg_EM_old::InitializeMeansUsingIntensity() {
+
+    for (int ms = 0; ms < this->nu; ms++) {
+        segPrecisionTYPE *Intensity_PTR = static_cast<segPrecisionTYPE *>(this->InputImage->data);
+        bool *MaskDataPtr = NULL;
+        if (this->maskImageStatus > 0) {
+            MaskDataPtr = static_cast<bool *>(this->Mask->data);
+        }
+        int mycounter = 0;
+        segPrecisionTYPE meanval = 0.0;
+        segPrecisionTYPE variance = 0.0;
+
+        for (int i = 0; i < this->numElements; i++) {
+            if (this->maskImageStatus == 0 || MaskDataPtr[i]) {
+                mycounter++;
+                meanval += (Intensity_PTR[i + ms * this->numElements]);
+            }
+        }
+        meanval = meanval / mycounter;
+
+        for (int i = 0; i < this->numElements; i++) {
+            if (this->maskImageStatus == 0 || MaskDataPtr[i]) {
+                variance += pow((meanval - Intensity_PTR[i + ms * this->numElements]), 2);
+            }
+        }
+        variance = variance / mycounter;
+        int histogram[1001];
+        for (int i = 0; i < 1000; i++) {
+            histogram[i] = 0;
+        }
+        segPrecisionTYPE tmpmax = -1e32f;
+        segPrecisionTYPE tmpmin = 1e32f;
+
+
+        for (int i = 0; i < this->numElements; i++) {
+            if (this->maskImageStatus == 0 || MaskDataPtr[i]) {
+                if (tmpmax < (int) (Intensity_PTR[i + ms * this->numElements])) {
+                    tmpmax = (int) (Intensity_PTR[i + ms * this->numElements]);
+                }
+                if (tmpmin > (int) (Intensity_PTR[i + ms * this->numElements])) {
+                    tmpmin = (int) (Intensity_PTR[i + ms * this->numElements]);
+                }
+            }
+        }
+
+        for (int i = 0; i < this->numElements; i++) {
+            if (this->maskImageStatus == 0 || MaskDataPtr[i]) {
+
+                int index4hist = (int) (1000.0f *
+                                        (segPrecisionTYPE) (Intensity_PTR[i + ms * this->numElements] - tmpmin) /
+                                        (segPrecisionTYPE) (tmpmax - tmpmin));
+                if ((index4hist > 1000) & (index4hist < 0)) {
+                    cout << "error" << endl;
+                }
+                histogram[(int) (1000.0 * (segPrecisionTYPE) (Intensity_PTR[i + ms * this->numElements] - tmpmin) /
+                                 (segPrecisionTYPE) (tmpmax - tmpmin))]++;
+            }
+        }
+
+
+        for (int clas = 0; clas < this->numberOfClasses; clas++) {
+            segPrecisionTYPE tmpsum = 0;
+            int tmpindex = 0;
+            segPrecisionTYPE percentile = ((segPrecisionTYPE) clas + 1) / (this->numberOfClasses + 1);
+            for (int i = 999; i > 0; i--) {
+                tmpsum += histogram[i];
+                tmpindex = i;
+                if ((segPrecisionTYPE) (tmpsum) > ((1.0f - percentile) * (segPrecisionTYPE) (mycounter))) {
+                    i = 0;
+                }
+            }
+            M[clas * this->nu + ms] = segPrecisionTYPE(tmpindex) * (tmpmax - tmpmin) / 1000.0f + (tmpmin);
+            V[clas * this->nu * this->nu + ms * this->nu + ms] = variance / this->numberOfClasses / 2;
+        }
+    }
+
+
+    for (int cl = 0; cl < this->numberOfClasses; cl++) {
+        if (this->verbose_level > 0) {
+            if (this->nu == 1) {
+                cout.fill('0');
+                cout << "M[" << (int) (cl) << "]= " << setw(10) << setprecision(7) << left << (segPrecisionTYPE) (M[cl])
+                     << "\tV[" << (int) (cl) << "]=" << setw(10) << setprecision(7) << left
+                     << (segPrecisionTYPE) (V[cl]) << endl;
+                flush(cout);
+            } else {
+
+                cout << "M[" << (int) (cl) << "]= ";
+                for (int Multispec = 0; Multispec < this->nu; Multispec++) {
+                    cout << setw(10) << setprecision(7) << left << (segPrecisionTYPE) (M[cl * this->nu + Multispec])
+                         << "\t";
+                }
+                cout << endl;
+                flush(cout);
+                cout << "V[" << (int) (cl) << "]= ";
+                for (int Multispec = 0; Multispec < this->nu; Multispec++) {
+                    if (Multispec > 0) {
+                        cout << "      ";
+                    }
+                    for (int Multispec2 = 0; Multispec2 < this->nu; Multispec2++) {
+                        cout << setw(10) << setprecision(7) << left
+                             << (segPrecisionTYPE) (V[cl * this->nu * this->nu + Multispec * this->nu + Multispec2])
+                             << "\t";
+                    }
+                    cout << endl;
+                }
+                cout << endl;
+                flush(cout);
+            }
+        }
+    }
+
+    return;
+}
+
 
 /* \/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/ */
 
@@ -419,16 +825,6 @@ void seg_EM_old::CreateCurrSizes() {
     CurrSizes->numelbias = 0;
     return;
 }
-
-/* \/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/ */
-void seg_EM_old::SetOutlierness(float in_OutliernessThreshold, float ratio) {
-
-    this->outliernessStatus = true;
-    this->outliernessThreshold = in_OutliernessThreshold;
-    this->outliernessRatio = ratio;
-    return;
-}
-
 
 /* \/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/ */
 void seg_EM_old::RunMaximization() {
@@ -1834,251 +2230,9 @@ void seg_EM_old::RunPriorRelaxation() {
     return;
 }
 
-/* \/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/ */
-/// @brief Initialises an allocates all the vectors.
-///
-/// If priors are not used, it initialises the means and variances using the intensity distributions. It also allocates the this->ShortPrior and this->Outlierness vectors when not previously deffined, even though they are all equal to 1/K and 1 respectively (thus not affecting the convergence);
-///
-void seg_EM_old::InitializeAndAllocate() {
 
 
-    if (this->priorsStatus) {
-        register long numel = (int) (this->Mask->nx * this->Mask->ny * this->Mask->nz);
-        register long numel_masked = 0;
 
-        bool *Maskptrtmp = static_cast<bool *> (this->Mask->data);
-        for (long i = 0; i < numel; i++, Maskptrtmp++) {
-            *Maskptrtmp ? numel_masked++ : 0;
-        }
-        int pluspv = (int) (this->pvModelStatus) * 2;
-
-        this->Expec = new segPrecisionTYPE[numel_masked * (this->numberOfClasses + pluspv)]();
-        segPrecisionTYPE *tempExpec = (segPrecisionTYPE *) Expec;
-        this->ShortPrior = new segPrecisionTYPE[numel_masked * (this->numberOfClasses + pluspv)]();
-        segPrecisionTYPE *tempShortPrior = (segPrecisionTYPE *) ShortPrior;
-        segPrecisionTYPE *PriorPTR = static_cast<segPrecisionTYPE *>(this->Priors->data);
-        for (long cl = 0; cl < this->numberOfClasses; cl++) {
-            Maskptrtmp = static_cast<bool *> (this->Mask->data);;
-            for (int i = numel; i--; Maskptrtmp++, PriorPTR++) {
-                if (*Maskptrtmp) {
-                    *tempExpec = *PriorPTR;
-                    *tempShortPrior = *PriorPTR;
-                    tempExpec++;
-                    tempShortPrior++;
-                }
-            }
-        }
-    } else {
-        this->InitializeMeansUsingIntensity();
-        int tmpnumb_elem = 0;
-        if (this->maskImageStatus > 0) {
-            tmpnumb_elem = (this->numElementsMasked * (this->numberOfClasses + (int) (this->pvModelStatus) * 2));
-        } else {
-            tmpnumb_elem = (numElements * (this->numberOfClasses + (int) (this->pvModelStatus) * 2));
-        }
-
-        segPrecisionTYPE tmpnumb_clas = ((this->numberOfClasses + (int) (this->pvModelStatus) * 2));
-        this->Expec = new segPrecisionTYPE[tmpnumb_elem]();
-        this->ShortPrior = new segPrecisionTYPE[tmpnumb_elem]();
-        for (int i = 0; i < tmpnumb_elem; i++) {
-            this->Expec[i] = 1.0 / tmpnumb_clas;
-            this->ShortPrior[i] = 1.0 / tmpnumb_clas;
-        }
-        this->RunExpectation();
-
-    }
-
-    for (int cl = 0; cl < this->numberOfClasses; cl++) {
-        if (this->outliernessStatus) {
-            int tmpnumb_elem = 0;
-            if (this->maskImageStatus > 0) {
-                tmpnumb_elem = (this->numElementsMasked * (this->numberOfClasses + (int) (this->pvModelStatus) * 2));
-            } else {
-                tmpnumb_elem = (numElements * (this->numberOfClasses + (int) (this->pvModelStatus) * 2));
-            }
-            this->OutliernessUSE = NULL;
-            this->Outlierness = new segPrecisionTYPE[tmpnumb_elem]();
-            for (int i = 0; i < tmpnumb_elem; i++) {
-                this->Outlierness[i] = 1.0;
-            }
-        }
-    }
-
-    return;
-
-}
-
-void seg_EM_old::InitializeAndNormalizeImageAndPriors() {
-    if (this->maskImageStatus == 0) {
-        this->maskImageStatus = 2;
-        this->Mask = nifti_copy_nim_info(this->InputImage);
-        Mask->dim[0] = 3;
-        Mask->dim[4] = 1;
-        Mask->dim[5] = 1;
-        Mask->datatype = DT_BINARY;
-        Mask->cal_max = 1;
-        nifti_set_filenames(Mask, (const char *) "tmpInternalMask.nii.gz", 0, 0);
-        nifti_update_dims_from_array(Mask);
-        nifti_datatype_sizes(Mask->datatype, &Mask->nbyper, &Mask->swapsize);
-        Mask->data = (void *) calloc(Mask->nvox, sizeof(bool));
-        bool *Maskdata = static_cast<bool *>(Mask->data);
-        for (unsigned int i = 0; i < Mask->nvox; i++) {
-            Maskdata[i] = 1;
-        }
-        this->numElementsMasked = this->numElements;
-    }
-
-    this->InitializeAndNormalizeNaNPriors();
-    this->InitializeAndNormalizeImage();
-
-    this->CreateShort2LongMatrix();
-    this->CreateLong2ShortMatrix();
-
-    if (this->mapStatus) {
-        for (int i = 0; i < this->numberOfClasses; i++) {
-            this->MAP_M[i] =
-                    logf(((this->MAP_M[i] - this->rescale_min[0]) / (this->rescale_max[0] - this->rescale_min[0])) +
-                         1) / 0.693147181;;
-            if (this->verbose_level > 0) {
-                cout << "MAP_M[" << i << "] = " << this->MAP_M[i] << endl;
-            }
-            this->M[i] = this->MAP_M[i];
-            this->V[i] = 1.0 / this->numberOfClasses;
-        }
-    }
-
-    return;
-
-}
-
-
-/* \/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/ */
-/// @brief Initialises, normalises and checks for NaN's in the priors.
-///
-/// It also does an empirical check of the priors.
-/// If the prior sum (over the classes) per voxel is <0 or >1000, then something is probably wrong or the user is using it wrong.
-/// If this happens, output an Error.
-///
-void seg_EM_old::InitializeAndNormalizeNaNPriors() {
-    if (this->priorsStatus) {
-        register int numel = Mask->nx * Mask->ny * Mask->nz;
-        register int ups = 0;
-        register int good = 0;
-        if (this->verbose_level > 0) {
-            cout << "Normalizing Priors" << endl;
-        }
-        if (Mask->datatype == DT_BINARY) {
-            if (this->InputImage->datatype != NIFTI_TYPE_FLOAT32 || this->InputImage->datatype != NIFTI_TYPE_FLOAT64) {
-                segPrecisionTYPE *priorsptr = static_cast<segPrecisionTYPE *>(this->Priors->data);
-                bool *brainmaskptr = static_cast<bool *> (this->Mask->data);
-
-                for (int i = 0; i < numel; i++) {
-                    if (brainmaskptr[i]) {
-                        segPrecisionTYPE tempsum = 0;
-                        for (int j = 0; j < this->Priors->nt; j++) {
-                            int tempind = i + numel * j;
-                            if (priorsptr[tempind] < 0.0 || priorsptr[tempind] != priorsptr[tempind] ||
-                                priorsptr[tempind] > 1000) {
-                                priorsptr[tempind] = 0.0;
-                            }
-                            tempsum += priorsptr[tempind];
-                        }
-                        if (tempsum > 0 && tempsum < 1000) {
-                            for (int j = 0; j < Priors->nt; j++) {
-                                int tempind = i + numel * j;
-                                priorsptr[tempind] = priorsptr[tempind] / tempsum;
-                            }
-                            good++;
-                        } else {
-                            for (int j = 0; j < Priors->nt; j++) {
-                                int tempind = i + numel * j;
-                                priorsptr[tempind] = 1.0f / (Priors->nt);
-                            }
-                            ups++;
-
-                        }
-                    } else {
-                        for (int j = 0; j < Priors->nt; j++) {
-                            int tempind = i + numel * j;
-                            priorsptr[tempind] = 0;
-                        }
-                    }
-                }
-            } else {
-
-                printf("Error:\tNormalize_NaN_Priors\tWrong Image datatype\n");
-
-            }
-        } else {
-
-            printf("Error:\tNormalize_NaN_Priors\tWrong mask datatype\n");
-
-        }
-
-        if (this->verbose_level > 0) {
-            cout << "Priors: " << good << " good voxels and " << ups << " bad voxels" << endl;
-            flush(cout);
-        }
-    }
-    return;
-}
-
-
-/* \/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/ */
-/// @brief Initialises, normalises and log transforms (for the bias field computation) the image itself.
-///
-/// The log transformation is used to make the bias field aditive.
-
-void seg_EM_old::InitializeAndNormalizeImage() {
-
-    if (this->verbose_level > 0) {
-        cout << "Normalizing Input Image" << endl;
-    }
-    int numel = (int) (this->InputImage->nx * this->InputImage->ny * this->InputImage->nz);
-
-
-    seg_changeDatatype<segPrecisionTYPE>(this->InputImage);
-
-
-    for (long udir = 0; udir < this->nu; udir++) // Per Multispectral Image
-    {
-        bool *brainmaskptr = static_cast<bool *> (this->Mask->data);
-        segPrecisionTYPE *Inputptrtmp = static_cast<segPrecisionTYPE *>(this->InputImage->data);
-        segPrecisionTYPE *Inputptr = &Inputptrtmp[numel * udir];
-
-        segPrecisionTYPE tempmax = -(1.0e32);
-        segPrecisionTYPE tempmin = 1.0e32;
-
-        for (int i = 0; i < numel; i++) {
-            if (brainmaskptr[i]) {
-                if (Inputptr[i] < tempmin) {
-                    tempmin = Inputptr[i];
-                }
-                if (Inputptr[i] > tempmax) {
-                    tempmax = Inputptr[i];
-                }
-            }
-        }
-        this->rescale_max[udir] = tempmax;
-        this->rescale_min[udir] = tempmin;
-        if (this->verbose_level > 0) {
-            cout << "Normalization[" << udir << "] = [" << tempmin << "," << tempmax << "]" << endl;
-        }
-        Inputptr = &Inputptrtmp[numel * udir];
-        brainmaskptr = static_cast<bool *> (Mask->data);
-        bool nanflag = false;
-        for (int i = 0; i < numel; i++) {
-            Inputptr[i] = logf((((Inputptr[i]) - tempmin) / (tempmax - tempmin)) + 1) / 0.693147181;
-            if (Inputptr[i] != Inputptr[i]) {
-                if (nanflag == 0) {
-                    cout << "Warning: The image at timepoint=" << udir << " has NaNs. This can cause problems." << endl;
-                    nanflag = true;
-                }
-            }
-        }
-    }
-    return;
-}
 
 
 void seg_EM_old::CreateShort2LongMatrix() {
@@ -2140,121 +2294,6 @@ void seg_EM_old::CreateLong2ShortMatrix() {
     return;
 }
 
-/* \/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/ */
-void seg_EM_old::InitializeMeansUsingIntensity() {
-
-    for (int ms = 0; ms < this->nu; ms++) {
-        segPrecisionTYPE *Intensity_PTR = static_cast<segPrecisionTYPE *>(this->InputImage->data);
-        bool *MaskDataPtr = NULL;
-        if (this->maskImageStatus) {
-            MaskDataPtr = static_cast<bool *>(this->Mask->data);
-        }
-        int mycounter = 0;
-        float meanval = 0.0;
-        float variance = 0.0;
-
-        for (int i = 0; i < this->numElements; i++) {
-            if (!this->maskImageStatus || MaskDataPtr[i] > 0) {
-                mycounter++;
-                meanval += (Intensity_PTR[i + ms * this->numElements]);
-            }
-        }
-        meanval = meanval / mycounter;
-
-        for (int i = 0; i < this->numElements; i++) {
-            if (!this->maskImageStatus || MaskDataPtr[i] > 0) {
-                variance += pow((meanval - Intensity_PTR[i + ms * this->numElements]), 2);
-            }
-        }
-        variance = variance / mycounter;
-        int histogram[1001];
-        for (int i = 0; i < 1000; i++) {
-            histogram[i] = 0;
-        }
-        float tmpmax = -1e32f;
-        float tmpmin = 1e32f;
-
-
-        for (int i = 0; i < this->numElements; i++) {
-            if (!this->maskImageStatus || MaskDataPtr[i] > 0) {
-                if (tmpmax < (int) (Intensity_PTR[i + ms * this->numElements])) {
-                    tmpmax = (int) (Intensity_PTR[i + ms * this->numElements]);
-                }
-                if (tmpmin > (int) (Intensity_PTR[i + ms * this->numElements])) {
-                    tmpmin = (int) (Intensity_PTR[i + ms * this->numElements]);
-                }
-            }
-        }
-
-        for (int i = 0; i < this->numElements; i++) {
-            if (!this->maskImageStatus || MaskDataPtr[i] > 0) {
-
-                int index4hist = (int) (1000.0f * (float) (Intensity_PTR[i + ms * this->numElements] - tmpmin) /
-                                        (float) (tmpmax - tmpmin));
-                if ((index4hist > 1000) & (index4hist < 0)) {
-                    cout << "error" << endl;
-                }
-                histogram[(int) (1000.0 * (float) (Intensity_PTR[i + ms * this->numElements] - tmpmin) /
-                                 (float) (tmpmax - tmpmin))]++;
-            }
-        }
-
-
-        for (int clas = 0; clas < this->numberOfClasses; clas++) {
-            float tmpsum = 0;
-            int tmpindex = 0;
-            float percentile = ((float) clas + 1) / (this->numberOfClasses + 1);
-            for (int i = 999; i > 0; i--) {
-                tmpsum += histogram[i];
-                tmpindex = i;
-                if ((float) (tmpsum) > ((1.0f - percentile) * (float) (mycounter))) {
-                    i = 0;
-                }
-            }
-            M[clas * CurrSizes->usize + ms] = float(tmpindex) * (tmpmax - tmpmin) / 1000.0f + (tmpmin);
-            V[clas * CurrSizes->usize * CurrSizes->usize + ms * CurrSizes->usize + ms] =
-                    variance / this->numberOfClasses / 2;
-        }
-    }
-
-
-    for (int cl = 0; cl < this->numberOfClasses; cl++) {
-        if (this->verbose_level > 0) {
-            if (CurrSizes->usize == 1) {
-                cout.fill('0');
-                cout << "M[" << (int) (cl) << "]= " << setw(10) << setprecision(7) << left << (segPrecisionTYPE) (M[cl])
-                     << "\tV[" << (int) (cl) << "]=" << setw(10) << setprecision(7) << left
-                     << (segPrecisionTYPE) (V[cl]) << endl;
-                flush(cout);
-            } else {
-
-                cout << "M[" << (int) (cl) << "]= ";
-                for (int Multispec = 0; Multispec < CurrSizes->usize; Multispec++) {
-                    cout << setw(10) << setprecision(7) << left
-                         << (segPrecisionTYPE) (M[cl * CurrSizes->usize + Multispec]) << "\t";
-                }
-                cout << endl;
-                flush(cout);
-                cout << "V[" << (int) (cl) << "]= ";
-                for (int Multispec = 0; Multispec < CurrSizes->usize; Multispec++) {
-                    if (Multispec > 0) {
-                        cout << "      ";
-                    }
-                    for (int Multispec2 = 0; Multispec2 < CurrSizes->usize; Multispec2++) {
-                        cout << setw(10) << setprecision(7) << left
-                             << (segPrecisionTYPE) (V[cl * CurrSizes->usize * CurrSizes->usize +
-                                                      Multispec * CurrSizes->usize + Multispec2]) << "\t";
-                    }
-                    cout << endl;
-                }
-                cout << endl;
-                flush(cout);
-            }
-        }
-    }
-
-    return;
-}
 
 /* \/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/ */
 
