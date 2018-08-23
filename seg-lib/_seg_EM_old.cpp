@@ -1624,18 +1624,22 @@ void seg_EM_old::RunExpectation() {
                 }
             }
 
-            if(OutliernessFlag){
-                float outvalue=(expf(mahal)+0.01)/(expf(mahal) + expf(-0.5*(outliernessThreshold *
-                                                                            outliernessThreshold)) + 0.01);
-                OutliernessUSE[i + Expec_offset[cl]]=outvalue;
+            // If the outlierness threshold is used, estimate here the new outlierness values. Note that this value is different per class. The 0.01 are there for stability reasons.
+            if (OutliernessFlag) {
+                segPrecisionTYPE outvalue = (expf(mahal) + 0.01) / (expf(mahal) + expf(-0.5 *
+                                                                                       (this->outliernessThreshold *
+                                                                                        this->outliernessThreshold)) +
+                                                                    0.01);
+                OutliernessTmpPTR[i + Expec_offset[cl]] = outvalue;
             }
             Expec[i + Expec_offset[cl]]= IterPrior[i + Expec_offset[cl]] * expf(mahal) * inv_sqrt_V_2pi[cl];
             SumExpec+= Expec[i + Expec_offset[cl]];
         }
 
-        if (SumExpec<=0.0 || SumExpec!=SumExpec){
-            for (int cl=0; cl<num_class; cl++) {
-                Expec[i + Expec_offset[cl]]= (float)(1) / (float)(num_class);
+        // If something went wrong, just set the expectation to 1/K
+        if (SumExpec <= 0.0 || SumExpec != SumExpec) {
+            for (int cl = 0; cl < num_class; cl++) {
+                ExpectationTmpPTR[i + Expec_offset[cl]] = (segPrecisionTYPE) (1) / (segPrecisionTYPE) (num_class);
             }
 
         }
