@@ -319,7 +319,6 @@ void seg_EM_old::SetMaximalIterationNumber(unsigned int numberiter) {
 ///
 void seg_EM_old::SetMinIterationNumber(unsigned int numberiter) {
     this->minIteration = numberiter;
-    this->checkpoint_iter = this->minIteration;
     return;
 }
 
@@ -1282,8 +1281,11 @@ void seg_EM_old::Run_EM() {
     return;
 }
 
-
 /* \/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/ */
+/// @brief Optimisation function taking care of the MAximisation step
+///
+/// Estimates the mean and covariance matrix parameters given the current responsabilities.
+///
 void seg_EM_old::RunMaximization() {
 
     int verbose = this->verbose_level;
@@ -1495,9 +1497,17 @@ void seg_EM_old::RunMaximization() {
     return;
 }
 
-/* \/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/ */
 
+
+/* \/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/ */
+/// @brief Optimisation function taking care of the Expectation step and also the outlierness estimation.
+///
+/// Estimates the responsabilities given the current estimates of the mean and covariance matrix parameters.
+/// Also estimates the outlierness, given the Mahalanobis threshold.
+///
 void seg_EM_old::RunExpectation() {
+
+
     if (this->ratio < (segPrecisionTYPE) (this->outliernessRatio) && this->outliernessStatus) {
         this->OutliernessUSE = this->Outlierness;
         if (this->verbose_level > 0) {
@@ -1921,6 +1931,13 @@ void seg_EM_old::RunMRF3D() {
         }
     }
 }
+
+
+/* \/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/ */
+/// @brief Function taking care of the bias field optimisation
+///
+/// This function calls the this->RunBiasField3D() and this->RunBiasField2D(), depending on the dimention of the data.
+///
 
 void seg_EM_old::RunBiasField() {
 
@@ -2643,8 +2660,12 @@ void seg_EM_old::RunBiasField2D() {
 }
 
 
-/* \/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/ */
 
+/* \/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/ */
+/// @brief Optimisation function taking care of the Prior relaxation
+///
+/// Estimates the Gaussian-regularised Derrichlet prior relaxation as described in the AdaPT (Cardoso et al. Neuroimage) paper
+///
 void seg_EM_old::RunPriorRelaxation() {
     if (this->relaxStatus) {
         if ((int) (this->verbose_level) > (int) (0)) {
@@ -2687,6 +2708,5 @@ void seg_EM_old::RunPriorRelaxation() {
     return;
 }
 
-
-
 #endif
+
