@@ -11,7 +11,7 @@ protected:
 
     nifti_image*    InputImage; // pointer to external
     bool    inputImage_status;
-    string  FilenameOut;
+    string  filenameOut;
     int     verbose_level;
 
     // Size
@@ -45,6 +45,11 @@ protected:
     int     maxIteration;
     int     minIteration;
     bool    aprox;
+
+    /// @brief A float vector of size maxMultispectalSize containing the maximum intensity value used for the intensity rescaling
+    float rescale_max[maxMultispectalSize];
+    /// @brief A float vector of size maxMultispectalSize containing the minimum intensity value used for the intensity rescaling
+    float rescale_min[maxMultispectalSize];
 
     // Mask
     nifti_image*    Mask; // pointer to external
@@ -101,9 +106,16 @@ protected:
     void RunBiasField3D();
     void RunBiasField2D();
     int UpdateOutlierness();
-    int InitializeAndNormalizeImageAndPriors();
-    void InitializeAndAllocate();
+    void     InitializeAndNormalizeImageAndPriors();
+    void     InitializeAndAllocate();
+    void     InitializeAndNormalizeNaNPriors();
+    void     InitializeAndNormalizeImage();
     int InitializeMeansUsingIntensity();
+
+    void     CreateShort2LongMatrix();
+    void     CreateLong2ShortMatrix();
+    void     CreateShort2LongMatrix_old();
+    void     CreateLong2ShortMatrix_old();
 
 public:
     seg_EM_old(int numb_classes,int NumbMultiSpec,int NumbTimePoints);
@@ -132,7 +144,6 @@ public:
     float * GetMeans();
     float * GetSTD();
     nifti_image *GetResult();
-    nifti_image *GetResultNew(char * filename);//saurabh
     nifti_image *GetResultNeonate();
     nifti_image *GetBiasCorrected(char * filename);
     nifti_image *GetOutlierness(char * filename);
