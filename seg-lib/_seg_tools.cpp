@@ -302,7 +302,7 @@ void GaussianSmoothing5D_nifti(nifti_image * Data,int * mask,float gauss_std_in)
         int index=0;
 #ifdef _OPENMP
 #pragma omp parallel for default(none) \
-    shared(DataPTR, mask, Density,current_4dShift_short,numElements) \
+    shared(DataPTR, mask, Density,current_4dShift_short,numel) \
     private(index)
 #endif
         for(index=0; index<numel; index++)
@@ -395,7 +395,7 @@ void GaussianSmoothing4D_Nan_nifti(nifti_image * Data,nifti_image * maskNifti)
             int index;
 #ifdef _OPENMP
 #pragma omp parallel for default(none) \
-    shared(DataPTR,Density,ImageBuffer,DensityBuffer,current_4dShift_short,numElements) \
+    shared(DataPTR,Density,ImageBuffer,DensityBuffer,current_4dShift_short,numel) \
     private(i)
 #endif
             for(index=0; index<numel; index++)
@@ -456,7 +456,7 @@ void GaussianSmoothing4D_Nan_nifti(nifti_image * Data,nifti_image * maskNifti)
         int index=0;
 #ifdef _OPENMP
 #pragma omp parallel for default(none) \
-    shared(DataPTR, mask, Density,current_4dShift_short,numElements) \
+    shared(DataPTR, mask, Density,current_4dShift_short,numel) \
     private(index)
 #endif
         for(index=0; index<numel; index++)
@@ -527,7 +527,7 @@ void BlockSmoothing(nifti_image * Data,int * mask,int side_size)
             int index;
 #ifdef _OPENMP
 #pragma omp parallel for default(none) \
-    shared(DataPTR,Density,ImageBuffer,DensityBuffer,current_4dShift_short,numElements) \
+    shared(DataPTR,Density,ImageBuffer,DensityBuffer,current_4dShift_short,numel) \
     private(i)
 #endif
             for(index=0; index<numel; index++)
@@ -584,7 +584,7 @@ void BlockSmoothing(nifti_image * Data,int * mask,int side_size)
         int index=0;
 #ifdef _OPENMP
 #pragma omp parallel for default(none) \
-    shared(DataPTR, mask, Density,current_4dShift_short,numElements) \
+    shared(DataPTR, mask, Density,current_4dShift_short,numel) \
     private(index)
 #endif
         for(index=0; index<numel; index++)
