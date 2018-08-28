@@ -13,10 +13,6 @@
         TARGET_LINK_LIBRARIES(seg_EM _seg_EM _seg_tools _seg_FMM _seg_nifti ${ZLIB})
     INSTALL_TARGETS(/bin seg_EM)
 
-    ADD_EXECUTABLE(seg_EM_old seg_EM_old.cpp)
-        TARGET_LINK_LIBRARIES(seg_EM_old _seg_EM_old _seg_old_stuff _seg_tools _seg_FMM _seg_nifti ${ZLIB})
-    INSTALL_TARGETS(/bin seg_EM_old)
-
     ADD_EXECUTABLE(seg_LabFusion seg_LabFusion.cpp)
         TARGET_LINK_LIBRARIES(seg_LabFusion _seg_LabFusion _seg_tools _seg_FMM _seg_nifti ${ZLIB})
     INSTALL_TARGETS(/bin seg_LabFusion)
@@ -44,7 +40,6 @@ set(MODULE_LIST
   seg_LoAd
   seg_stats
   seg_EM
-  seg_EM_old
   seg_LabFusion
   seg_maths
   seg_CalcTopNCC

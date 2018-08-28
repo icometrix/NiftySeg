@@ -2679,7 +2679,7 @@ void seg_EM::RunPriorRelaxation() {
 
         int oldTSize = this->CurrSizes->tsize;
         this->CurrSizes->tsize = this->CurrSizes->numclass;
-        GaussianFilter4D_cArray(this->ShortPrior, this->S2L, this->L2S, this->relaxGaussKernelSize, this->CurrSizes);
+        GaussianFilter4D_cArray_old(this->ShortPrior, this->S2L, this->L2S, this->relaxGaussKernelSize, this->CurrSizes, CSFclass);
         this->CurrSizes->tsize = oldTSize;
 
         // Estimate the new priors, i.e. (1-alpha)(Gaussian(Expec)) + (alpha)(Prior)
